@@ -51,7 +51,7 @@ no_findings <- filter(plr, is.na(hasfindings) | hasfindings == 0)
 with_findings <- filter(plr,  hasfindings == 1)
 
 
-plr %>% filter(Institution == "Hôpital Universitaire la Paix") %>% 
+plr %>% 
     group_by(TypeRelanceNew) %>%
     summarise( n= n(), npatient = n_distinct(id_patient))
 
@@ -142,19 +142,4 @@ plr_outcome %>% filter(TypeRelanceNew == "LTFU",typesuivi == "Visite") %>%
     group_by(PatientRetrouve) %>% 
     summarise(n = n_distinct(id_patient))
 
-######## LTFU Analysis
-
-plr_ltfu <- filter(plr,TypeRelanceNew == "LTFU")
-n_distinct(plr_ltfu$id_patient)
-
-p_by_patient  <- plr_ltfu %>% group_by(id_patient,sexe) %>%
-                             summarise( PatientDecede = sum(PatientDecede, na.rm = T ),
-                                        PatientRetrouve = sum (PatientRetrouve, na.rm = T), 
-                                        PatientRetourneALaClinique = sum(PatientRetourneALaClinique, na.rm = T))
-
-p_by_patient %>% group_by(PatientRetrouve) %>% summarise( c = n_distinct(id_patient))
-
-plr %>% group_by(typesuivi,TypeRelanceNew) %>% 
-       summarise(n = n_distinct(id_patient)) %>%
-        spread(TypeRelanceNew, n)
 

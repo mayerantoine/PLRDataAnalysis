@@ -23,6 +23,8 @@ library(lubridate)
 # patient a relancer et visite en cours where are does data
 # explain PatientRefuse et patientensuiviailleurs
 # it seems derniere visite is update across all follow up
+# Pourqui pas de trouvaille remplit dans plusieurs visites
+# Auto-stigmatisation, Voyage inter-urbain, 
 
 ########
 
@@ -75,12 +77,43 @@ LTFU_max_date$PatientRetrouve_New <- ifelse(LTFU_max_date$PatientRetrouve == 0, 
                                             ifelse(LTFU_max_date$vitalstatus == "Dead","Not found","Found"))
 
 
-LTFU_max_date$PatientRetourneALaClinique_New <- ifelse(LTFU_max_date$PatientRetourneALaClinique == 0, "LTFU","Back in Care") 
+LTFU_max_date$PatientRetourneALaClinique_New <- ifelse(LTFU_max_date$PatientRetourneALaClinique == 0, "LTFU",
+                                                       "Back in Care") 
                                             
 
-LTFU_Flow <- LTFU_max_date %>%  filter(Institution == "Hôpital Universitaire la Paix") %>% 
+LTFU_Flow <- LTFU_max_date %>%  filter(Institution == "Hôpital Immaculée Conception des Cayes") %>% 
     group_by(outcomestatus,vitalstatus,PatientRetrouve_New,PatientRetourneALaClinique_New) %>% summarise(n=n())
 
-write_csv(LTFU_max_date,"LTFU_max_date.csv")
 
-write_csv(LTFU_Flow, "LTFU_Flow.csv")
+LTFU_Ins <- LTFU_max_date %>% 
+    filter(Institution == "Hôpital Immaculée Conception des Cayes") %>% 
+    group_by(Institution) %>%
+    summarise(n=n())
+ 
+
+
+LTFU_Ins <- plr %>% 
+    filter(Institution == "Hôpital Immaculée Conception des Cayes") %>% 
+    group_by(Institution) %>%
+    summarise(n= n_distinct(id_patient))
+
+
+write_csv(LTFU,"LTFU.csv")
+# write_csv(LTFU_max_date,"LTFU_max_date.csv")
+# write_csv(LTFU_Flow, "LTFU_Flow.csv")
+
+###########################
+
+findings <- c("FraisTransportNonDisponible","EtatTropMalade","Oubli",
+              "RechercheSoinsAlternatifs","PeurDEtreVuDansUnSiteVIH","ServicesInsatisfaisant",
+              "Voyage","Migration","Stigmatisation","OccupationOuManquedeTemps","DecesDansLaFamille",
+              "BesoinDeTransfert","PatientSuiviAilleurs","PatientDecede")
+
+tb_findings <- LTFU %>%  select(id_patient,typesuivi,datesuivieffectue,sexe,
+                                datenaissance,Institution, one_of(findings))
+
+
+tb_findings <- tb_findings %>% filter(Institution == "Hôpital Immaculée Conception des Cayes") %>%
+    gather("findings","Status",7:19) %>% filter(!is.na(Status), Status ==1) 
+
+tb_findings %>%  group_by(findings) %>% summarise(n =n())
