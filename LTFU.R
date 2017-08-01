@@ -25,6 +25,8 @@ library(lubridate)
 # it seems derniere visite is update across all follow up
 # Pourqui pas de trouvaille remplit dans plusieurs visites
 # Auto-stigmatisation, Voyage inter-urbain, 
+# how did you calulate re-lost
+# Date de retour inferieur a date follow up
 
 ########
 
@@ -80,20 +82,23 @@ LTFU_max_date$PatientRetrouve_New <- ifelse(LTFU_max_date$PatientRetrouve == 0, 
 LTFU_max_date$PatientRetourneALaClinique_New <- ifelse(LTFU_max_date$PatientRetourneALaClinique == 0, "LTFU",
                                                        "Back in Care") 
                                             
-
-LTFU_Flow <- LTFU_max_date %>%  filter(Institution == "Hôpital Immaculée Conception des Cayes") %>% 
+# from janv 2015 to date
+LTFU_Flow <- LTFU_max_date %>% 
     group_by(outcomestatus,vitalstatus,PatientRetrouve_New,PatientRetourneALaClinique_New) %>% summarise(n=n())
+
+# from oct 2016 to june 2017
+LTFU_Flow <- LTFU_max_date %>%  filter(datesuivieffectue >= ymd("2016-09-01"), datesuivieffectue <= ymd("2017-06-30") ) %>%
+    group_by(outcomestatus,vitalstatus,PatientRetrouve_New,PatientRetourneALaClinique_New) %>% 
+        summarise(n=n())
+
 
 
 LTFU_Ins <- LTFU_max_date %>% 
-    filter(Institution == "Hôpital Immaculée Conception des Cayes") %>% 
     group_by(Institution) %>%
     summarise(n=n())
  
 
-
-LTFU_Ins <- plr %>% 
-    filter(Institution == "Hôpital Immaculée Conception des Cayes") %>% 
+LTFU_Ins <- plr %>% filter(TypeRelanceNew == "LTFU") %>%
     group_by(Institution) %>%
     summarise(n= n_distinct(id_patient))
 
@@ -113,7 +118,26 @@ tb_findings <- LTFU %>%  select(id_patient,typesuivi,datesuivieffectue,sexe,
                                 datenaissance,Institution, one_of(findings))
 
 
-tb_findings <- tb_findings %>% filter(Institution == "Hôpital Immaculée Conception des Cayes") %>%
-    gather("findings","Status",7:19) %>% filter(!is.na(Status), Status ==1) 
+tb_findings <- tb_findings %>% 
+    gather("findings","Status",7:20) %>% filter(!is.na(Status), Status ==1) 
 
 tb_findings %>%  group_by(findings) %>% summarise(n =n())
+
+#######################
+
+
+oct_june2017 <- LTFU_max_date %>% filter(datesuivieffectue >= "2016-09-01", 
+                                         datesuivieffectue <= "2017-06-30" )
+
+oct_june2017$delaiRetour <- oct_june2017$DateRetourALaClinique - oct_june2017$datesuivieffectue
+oct_june2017$delaiLastVisit <- oct_june2017$Derniere.visite - oct_june2017$datesuivieffectue
+
+delai <- oct_june2017 %>% 
+    select(id_patient,datesuivieffectue,DateRetourALaClinique,
+           PatientRetourneALaClinique,Derniere.visite,delaiRetour,delaiLastVisit) %>%
+    filter( is.na(delaiRetour))
+
+oct_june2017 %>% 
+    group_by(PatientRetourneALaClinique) %>%
+    summarise(n=n())
+
