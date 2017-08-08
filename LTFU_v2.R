@@ -64,7 +64,7 @@ ggplot(follow_up_by_reason,aes(TypeRelance_clean,n)) +
 ggplot(follow_up_by_reason,aes(Partner,n)) + 
     geom_col()+
     coord_flip()+
-    facet_grid(~TypeRelance_clean)
+    facet_wrap(~TypeRelance_clean)
 
 
 ggplot(follow_up_by_reason,aes(TypeRelance_clean,n)) + 
@@ -74,8 +74,8 @@ ggplot(follow_up_by_reason,aes(TypeRelance_clean,n)) +
 # by departement
 ggplot(follow_up_by_reason,aes(SNU1,n)) + 
     geom_col()+
-    coord_flip()+
-    facet_grid(~TypeRelance_clean)
+    facet_wrap(~TypeRelance_clean) +
+    theme(axis.text.x = element_text(angle=65, vjust=0.6))
 
 ## Trend by reason
 
@@ -120,19 +120,19 @@ agg_site$TypeRelance_clean <- as.factor(agg_site$TypeRelance_clean)
 agg_site$Institution <- as.factor(agg_site$Institution)
 agg_site <- agg_site[order(agg_site$n,decreasing = T),]
 
-## cannot bt use because of duplicate
+## cannot  use  stack because of duplicate
  ggplot(agg_site) + 
     geom_bar(aes(x=reorder(Institution,n), y= n, fill=TypeRelance_clean),stat ="Identity", position="stack") +
     theme(axis.text.x = element_text(angle=90, vjust=0.1))
 
-# what is the trend for patient introuvable
-### LTFU
+
+##################### LTFU
 
 ## outcome flow
 LTFU <- plr %>% filter(TypeRelance_clean == "LTFU") %>% 
                 group_by(id_patient) %>%
                 slice( which.max(datesuivieffectue))
-
+LTFU <- ungroup(LTFU)
 LTFU$PatientDecede <- ifelse(is.na(LTFU$PatientDecede),0,LTFU$PatientDecede)
 LTFU$PatientRetourneALaClinique <- ifelse(is.na(LTFU$PatientRetourneALaClinique),0,LTFU$PatientRetourneALaClinique)
 LTFU$PatientRefuse <- ifelse(is.na(LTFU$PatientRefuse),0,LTFU$PatientRefuse)
@@ -141,19 +141,179 @@ LTFU$PatientIntrouvable <- ifelse(is.na(LTFU$PatientIntrouvable),0,LTFU$PatientI
 
 LTFU <- mutate(LTFU,outcome_check = PatientDecede+PatientRefuse+PatientSuiviAilleurs+PatientRetourneALaClinique+PatientIntrouvable)
 LTFU <- filter(LTFU,outcome_check <=1)
+
+## all outcome except patientintrouvable
 LTFU$outcome_status <-as.integer(LTFU$PatientDecede | 
                                  LTFU$PatientRefuse |
                                  LTFU$PatientSuiviAilleurs | 
-                                 LTFU$PatientRetourneALaClinique | 
-                                 LTFU$PatientIntrouvable)
+                                 LTFU$PatientRetourneALaClinique )
 
-outcome <- LTFU %>% select(id_patient,datesuivieffectue_clean,PatientDecede,PatientRefuse,
-                           PatientSuiviAilleurs,PatientRetourneALaClinique,PatientIntrouvable,statutfiche)
-
-write_csv(outcome,"outcome2.csv")
+LTFU$no_outcome <- ifelse(LTFU$outcome_check == 0,1,0)
 
 
 
-flow <- LTFU %>%
-group_by(PatientContacte,PatientRetrouve_clean,PatientDecede_clean,PatientSuiviAilleurs,PatientRefuse,PatientRetourneALaClinique) %>% 
-    summarise(n=n_distinct(id_patient))
+#outcome flow summary
+outcome_summary <- LTFU %>%
+    summarise(n=n_distinct(id_patient),
+              outcome= sum(outcome_status),
+              percent_outcome = round((outcome/n)*100,1),
+              Dead = sum(PatientDecede),
+              percent_dead = round((Dead/n)*100,1),
+              PatientRefuse = sum(PatientRefuse),
+              percent_refuse = round((PatientRefuse/n)*100,1),
+              PatientTransfered = sum(PatientSuiviAilleurs),
+              percent_transfered = round((PatientTransfered/n)*100,1),
+              PatientBackinClinic = sum(PatientRetourneALaClinique),
+              percent_BackinClinic = round((PatientBackinClinic/n)*100,1),
+              PatientNotFound = sum(PatientIntrouvable),
+              percent_NotFound =  round((PatientNotFound/n)*100,1),
+              no_reported_outcome = sum(no_outcome),
+              percent_No_outcome = round((no_reported_outcome/n)*100,1))
+
+s <- outcome_summary %>% 
+    select(percent_outcome,percent_dead,percent_refuse,percent_transfered,
+           percent_BackinClinic,percent_NotFound,percent_No_outcome) %>% 
+    gather("status","val",1:7)
+
+ggplot(s) +
+    geom_bar(stat = "identity", aes(reorder(status,val),val))
+
+#outcome flow summary by year
+outcome_summary_by_year <- LTFU %>%
+    group_by(year_suivi) %>%
+    summarise(n=n_distinct(id_patient),
+              outcome= sum(outcome_status),
+              percent_outcome = round((outcome/n)*100,1),
+              Dead = sum(PatientDecede),
+              percent_dead = round((Dead/n)*100,1),
+              PatientRefuse = sum(PatientRefuse),
+              percent_refuse = round((PatientRefuse/n)*100,1),
+              PatientTransfered = sum(PatientSuiviAilleurs),
+              percent_transfered = round((PatientTransfered/n)*100,1),
+              PatientBackinClinic = sum(PatientRetourneALaClinique),
+              percent_BackinClinic = round((PatientBackinClinic/n)*100,1),
+              PatientNotFound = sum(PatientIntrouvable),
+              percent_NotFound =  round((PatientNotFound/n)*100,1),
+              no_reported_outcome = sum(no_outcome),
+              percent_No_outcome = round((no_reported_outcome/n)*100,1))
+
+
+#outcome flow summary by age
+outcome_summary_by_age <- LTFU %>%
+    group_by(age_group) %>%
+    summarise(n=n_distinct(id_patient),
+              outcome= sum(outcome_status),
+              percent_outcome = round((outcome/n)*100,1),
+              Dead = sum(PatientDecede),
+              percent_dead = round((Dead/n)*100,1),
+              PatientRefuse = sum(PatientRefuse),
+              percent_refuse = round((PatientRefuse/n)*100,1),
+              PatientTransfered = sum(PatientSuiviAilleurs),
+              percent_transfered = round((PatientTransfered/n)*100,1),
+              PatientBackinClinic = sum(PatientRetourneALaClinique),
+              percent_BackinClinic = round((PatientBackinClinic/n)*100,1),
+              PatientNotFound = sum(PatientIntrouvable),
+              percent_NotFound =  round((PatientNotFound/n)*100,1),
+              no_reported_outcome = sum(no_outcome),
+              percent_No_outcome = round((no_reported_outcome/n)*100,1))
+
+
+#outcome flow by sexe
+outcome_summary_by_sexe <- LTFU %>%
+    group_by(sexe) %>%
+    summarise(n=n_distinct(id_patient),
+              outcome= sum(outcome_status),
+              percent_outcome = round((outcome/n)*100,1),
+              Dead = sum(PatientDecede),
+              percent_dead = round((Dead/n)*100,1),
+              PatientRefuse = sum(PatientRefuse),
+              percent_refuse = round((PatientRefuse/n)*100,1),
+              PatientTransfered = sum(PatientSuiviAilleurs),
+              percent_transfered = round((PatientTransfered/n)*100,1),
+              PatientBackinClinic = sum(PatientRetourneALaClinique),
+              percent_BackinClinic = round((PatientBackinClinic/n)*100,1),
+              PatientNotFound = sum(PatientIntrouvable),
+              percent_NotFound =  round((PatientNotFound/n)*100,1),
+              no_reported_outcome = sum(no_outcome),
+              percent_No_outcome = round((no_reported_outcome/n)*100,1))
+
+LTFU$PatientContacted <- "Total"
+
+
+## Tentative description table
+outcome_data <- LTFU %>%
+    group_by(PatientContacted) %>%
+    summarise(n=n_distinct(id_patient),
+              outcome= sum(outcome_status),
+              Dead = sum(PatientDecede),
+              PatientRefuse = sum(PatientRefuse),
+              PatientTransfered = sum(PatientSuiviAilleurs),
+              PatientBackinClinic = sum(PatientRetourneALaClinique),
+              PatientNotFound = sum(PatientIntrouvable),
+              no_reported_outcome = sum(no_outcome))
+
+outcome_age<- LTFU %>%
+    group_by(PatientContacted = age_group) %>%
+    summarise(n=n_distinct(id_patient),
+              outcome= sum(outcome_status),
+              Dead = sum(PatientDecede),
+              PatientRefuse = sum(PatientRefuse),
+              PatientTransfered = sum(PatientSuiviAilleurs),
+              PatientBackinClinic = sum(PatientRetourneALaClinique),
+              PatientNotFound = sum(PatientIntrouvable),
+              no_reported_outcome = sum(no_outcome))
+
+outcome_sexe<- LTFU %>%
+    group_by(PatientContacted = sexe) %>%
+    summarise(n=n_distinct(id_patient),
+              outcome= sum(outcome_status),
+              Dead = sum(PatientDecede),
+              PatientRefuse = sum(PatientRefuse),
+              PatientTransfered = sum(PatientSuiviAilleurs),
+              PatientBackinClinic = sum(PatientRetourneALaClinique),
+              PatientNotFound = sum(PatientIntrouvable),
+              no_reported_outcome = sum(no_outcome))
+ 
+outcome_description <-  rbind(outcome_data,outcome_age,outcome_sexe)
+
+# what is the trend for patient introuvable
+
+################ Findings
+
+
+findings <- c("FraisTransportNonDisponible","EtatTropMalade","Oubli",
+              "RechercheSoinsAlternatifs","PeurDEtreVuDansUnSiteVIH","ServicesInsatisfaisant",
+              "Voyage","Migration","Stigmatisation","OccupationOuManquedeTemps","DecesDansLaFamille",
+              "BesoinDeTransfert")
+
+tb_findings <- plr %>% filter(TypeRelance_clean == "LTFU") %>% 
+                    select(id_patient,typesuivi,datesuivieffectue_clean,sexe,
+                           age_group,age_suivi,year_suivi,monthyr,Institution,
+                           SNU1,SNU2,Partner, one_of(findings))
+
+## number of records with no findings
+
+## overall findings
+t <- tb_findings %>%  select(one_of(findings)) %>%  summarise_each(funs(sum(.,na.rm=T)))
+t <- gather(t,"findings","n",1:12)
+
+ggplot(t) +
+    geom_bar(stat = "identity", aes(reorder(findings,n),n))+
+    theme(axis.text.x = element_text(angle=90, vjust=0.4)) # i need proportion to better tell story
+
+## by department
+t_by_SNU1 <- tb_findings %>% group_by(SNU1) %>% select(one_of(findings)) %>% summarise_each(funs(sum(.,na.rm=T)))
+t_by_SNU1 <- gather(t_by_SNU1,"findings","n",2:13)
+
+ggplot(t_by_SNU1) +
+    geom_bar(stat = "identity", aes(reorder(findings,n),n))+
+    facet_wrap(~SNU1)+
+    theme(axis.text.x = element_text(angle=90, vjust=0.4))
+
+
+ggplot(t_by_SNU1) +
+    geom_bar(stat = "identity", aes(reorder(SNU1,n),n))+
+    facet_wrap(~findings)+
+    theme(axis.text.x = element_text(angle=90, vjust=0.4))
+
+
