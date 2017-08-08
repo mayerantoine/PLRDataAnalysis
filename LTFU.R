@@ -14,7 +14,7 @@ library(lubridate)
 
 # Flow of outcomes
 # Top reason for patient not coming back to the clinic by TypeRelance, and by TypeSuivi, by Age, Sex, Site
-
+# from tracked by cohort how many came back after x months
 
 ###############
 # if Patientdecede is 0 does that mean patient is alive ? same for PatientRetrouve,Retournealaclinique
@@ -23,13 +23,20 @@ library(lubridate)
 # patient a relancer et visite en cours where are does data
 # explain PatientRefuse et patientensuiviailleurs
 # it seems derniere visite is update across all follow up
-# Pourqui pas de trouvaille remplit dans plusieurs visites
+# Pourquoi pas de trouvaille remplit dans plusieurs visites
 # Auto-stigmatisation, Voyage inter-urbain, 
 # how did you calulate re-lost
 # Date de retour inferieur a date follow up
+###############
 
-########
+# NULL and zero is the same
+# Replace datesuvivie with fichecreele when necessary
+# we dont know when alive
+# fiche incomplet that's why ParientRetournelaClinique NULL
+## look up which denierevisite to use ?? CHT vs EMR
 
+
+#########
 rm(list = ls())
 rawdata <- read_csv("plr_072017.csv", na=c("NULL","NA"))
 names(rawdata) <- make.names(names(rawdata))
@@ -67,28 +74,34 @@ by_patient <- LTFU %>% group_by(id_patient) %>% summarise(nb=n())
 
 LTFU_max_date <- LTFU %>% group_by(id_patient) %>% slice( which.max(datesuivieffectue))
 
-LTFU_max_date$PatientDecede_New <- ifelse(is.na(LTFU_max_date$PatientDecede) & LTFU_max_date$PatientRetrouve == 1 , 0 ,
-                                    LTFU_max_date$PatientDecede)
 
+LTFU_max_date$PatientContacte <- "Contacted"
+LTFU_max_date$PatientDecede_New <- ifelse(is.na(LTFU_max_date$PatientDecede) & LTFU_max_date$PatientRetrouve == 1 , 0 ,
+                                   LTFU_max_date$PatientDecede)
 LTFU_max_date$vitalstatus <- ifelse( is.na(LTFU_max_date$PatientDecede_New) , "Unknown", 
                                     ifelse(LTFU_max_date$PatientDecede_New == 0, "Alive","Dead") )
-
-LTFU_max_date$outcomestatus <- ifelse(LTFU_max_date$vitalstatus == "Unknown","No outcome found","Outcome found")
-
-LTFU_max_date$PatientRetrouve_New <- ifelse(LTFU_max_date$PatientRetrouve == 0, "Not found", 
-                                            ifelse(LTFU_max_date$vitalstatus == "Dead","Not found","Found"))
+#LTFU_max_date$outcomestatus <- ifelse(LTFU_max_date$vitalstatus == "Unknown","No outcome found","Outcome found")
 
 
-LTFU_max_date$PatientRetourneALaClinique_New <- ifelse(LTFU_max_date$PatientRetourneALaClinique == 0, "LTFU",
-                                                       "Back in Care") 
-                                            
+LTFU_max_date$PatientRetrouve_New <- ifelse(LTFU_max_date$vitalstatus == "Dead","Found",
+                                            ifelse(LTFU_max_date$PatientRetrouve == 0, "Not found","Found"))
+
+
+LTFU_max_date$PatientRetourneALaClinique_New <- ifelse(LTFU_max_date$PatientRetourneALaClinique == 0 |
+                                             is.na(LTFU_max_date$PatientRetourneALaClinique) |LTFU_max_date$vitalstatus == "Dead"
+                                             , "LTFU", "Back in Care") 
+ 
 # from janv 2015 to date
 LTFU_Flow <- LTFU_max_date %>% 
-    group_by(outcomestatus,vitalstatus,PatientRetrouve_New,PatientRetourneALaClinique_New) %>% summarise(n=n())
+    group_by(sexe,PatientRetrouve_New) %>%
+    summarise(nb=n()) %>% spread(PatientRetrouve_New,nb) 
+
+start_date <- ymd("2016-09-01")
+end_date <- ymd("2017-06-30")
 
 # from oct 2016 to june 2017
-LTFU_Flow <- LTFU_max_date %>%  filter(datesuivieffectue >= ymd("2016-09-01"), datesuivieffectue <= ymd("2017-06-30") ) %>%
-    group_by(outcomestatus,vitalstatus,PatientRetrouve_New,PatientRetourneALaClinique_New) %>% 
+LTFU_Flow_oct2016 <- LTFU_max_date %>%  filter(datesuivieffectue >=start_date, datesuivieffectue <= end_date )  %>%
+    group_by(PatientContacte,PatientRetrouve_New,vitalstatus,PatientRetourneALaClinique_New) %>% 
         summarise(n=n())
 
 
@@ -105,7 +118,7 @@ LTFU_Ins <- plr %>% filter(TypeRelanceNew == "LTFU") %>%
 
 write_csv(LTFU,"LTFU.csv")
 # write_csv(LTFU_max_date,"LTFU_max_date.csv")
-# write_csv(LTFU_Flow, "LTFU_Flow.csv")
+# write_csv(LTFU_Flow, "LTFU_Flow_oct.csv")
 
 ###########################
 
@@ -125,19 +138,39 @@ tb_findings %>%  group_by(findings) %>% summarise(n =n())
 
 #######################
 
+start_date <- ymd("2016-09-01")
+end_date <- ymd("2017-06-30")
 
-oct_june2017 <- LTFU_max_date %>% filter(datesuivieffectue >= "2016-09-01", 
-                                         datesuivieffectue <= "2017-06-30" )
+oct_june2017 <- LTFU_max_date %>% 
+                filter(datesuivieffectue >=start_date, datesuivieffectue <= end_date ) 
 
 oct_june2017$delaiRetour <- oct_june2017$DateRetourALaClinique - oct_june2017$datesuivieffectue
+oct_june2017$delaiRetourFiche <- oct_june2017$DateRetourALaClinique - oct_june2017$FicheCrééeLe
 oct_june2017$delaiLastVisit <- oct_june2017$Derniere.visite - oct_june2017$datesuivieffectue
 
 delai <- oct_june2017 %>% 
-    select(id_patient,datesuivieffectue,DateRetourALaClinique,
+    select(id_patient,datesuivieffectue,DateRetourALaClinique,FicheCrééeLe ,typesuivi,
            PatientRetourneALaClinique,Derniere.visite,delaiRetour,delaiLastVisit) %>%
-    filter( is.na(delaiRetour))
+    filter(delaiRetour <0)
 
-oct_june2017 %>% 
-    group_by(PatientRetourneALaClinique) %>%
-    summarise(n=n())
+delai$delaiRetourNbMois <- round(delai$delaiRetour/30,0)
+
+delai$delaiRetourNbMoisLabel <- paste("Mois",delai$delaiRetourNbMois,sep= "")
+
+delai$delaiRetourNbMoisFlag <- 1
+
+delai <- spread(delai,delaiRetourNbMoisLabel,delaiRetourNbMoisFlag)
+
+LTFU_retour <- delai %>% 
+    group_by(year(datesuivieffectue),month(datesuivieffectue)) %>%
+    summarise(n=n_distinct(id_patient),
+              Mois0= sum(Mois0,na.rm = T),
+              Mois1= sum(Mois1,na.rm=T),
+              Mois2= sum(Mois2,na.rm = T),
+              Mois3= sum(Mois3,na.rm =T),
+              Mois4= sum(Mois4,na.rm = T),
+              Mois5= sum(Mois5,na.rm = T),
+              Mois6= sum(Mois6,na.rm = T),
+              Mois7= sum(Mois7,na.rm = T),
+              Mois8= sum(Mois8,na.rm = T))
 
