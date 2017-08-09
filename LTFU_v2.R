@@ -334,5 +334,27 @@ prop.table(ftable(tab1))
 
 xtabs_partner <- xtabs(~Partner+patient_outcome,LTFU_2)
 
-xtabs_partner <- xtabs(~SNU1+patient_outcome,LTFU_2)
+xtabs_snu1 <- xtabs(~SNU1+patient_outcome,LTFU_2)
+
+### active patient
+
+active_LTFU <- LTFU %>% 
+                filter(PatientRetourneALaClinique ==1) %>% 
+                select(id_patient,typesuivi,datesuivieffectue_clean,PatientRetourneALaClinique,
+                      DateRetourALaClinique,lastserviceeventdateemr,lastserviceeventdatecht,
+                      NextVisitDate,statutfiche)
+report_date <- date(max(LTFU$datesuivieffectue_clean))
+active_LTFU$diff_NexVisit_LastVisitCHT <- active_LTFU$NextVisitDate - active_LTFU$lastserviceeventdatecht
+active_LTFU$diff_reportdate_NexVisit <- report_date - active_LTFU$NextVisitDate
+
+a1 <- filter(active_LTFU, active_LTFU$NextVisitDate >= report_date)
+a2 <- filter(active_LTFU, diff_reportdate_NexVisit <=90)
+
+active_LTFU <- mutate(active_LTFU,PactientActif_1 = ifelse(NextVisitDate >= report_date,1,0))
+active_LTFU <- mutate(active_LTFU,PactientActif_2 = ifelse(report_date - NextVisitDate <=90,1,0))
+
+
+active_LTFU <- mutate(active_LTFU,PactientActif = ifelse(NextVisitDate >= report_date,1,
+                                                         ifelse((NextVisitDate < report_date) & diff_reportdate_NexVisit<=90,1,0)))
+
 
