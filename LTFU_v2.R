@@ -152,6 +152,7 @@ LTFU$no_outcome <- ifelse(LTFU$outcome_check == 0,1,0)
 
 
 
+
 #outcome flow summary
 outcome_summary <- LTFU %>%
     summarise(n=n_distinct(id_patient),
@@ -316,4 +317,22 @@ ggplot(t_by_SNU1) +
     facet_wrap(~findings)+
     theme(axis.text.x = element_text(angle=90, vjust=0.4))
 
+
+### categorical model
+
+var_outcome <- c("PatientDecede","PatientRefuse","PatientRetourneALaClinique","PatientSuiviAilleurs","PatientIntrouvable","no_outcome")
+
+LTFU_2 <- select(LTFU,id_patient,sexe,age_group,age_suivi,datesuivieffectue_clean,year_suivi,
+                 monthyr_suvi,Institution,Partner,SNU1,SNU2,one_of(var_outcome))
+
+
+LTFU_2 <- gather(LTFU_2,"patient_outcome","var",12:17) %>% filter(var == 1)
+
+tab1 <- table(LTFU_2$sexe,LTFU_2$age_group ,LTFU_2$patient_outcome)
+ftable(tab1)
+prop.table(ftable(tab1))
+
+xtabs_partner <- xtabs(~Partner+patient_outcome,LTFU_2)
+
+xtabs_partner <- xtabs(~SNU1+patient_outcome,LTFU_2)
 
