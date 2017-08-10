@@ -131,7 +131,7 @@ agg_site <- agg_site[order(agg_site$n,decreasing = T),]
 ## outcome flow
 LTFU <- plr %>% filter(TypeRelance_clean == "LTFU") %>% 
                 group_by(id_patient) %>%
-                slice( which.max(datesuivieffectue))
+                slice( which.max(datesuivieffectue_clean))
 LTFU <- ungroup(LTFU)
 LTFU$PatientDecede <- ifelse(is.na(LTFU$PatientDecede),0,LTFU$PatientDecede)
 LTFU$PatientRetourneALaClinique <- ifelse(is.na(LTFU$PatientRetourneALaClinique),0,LTFU$PatientRetourneALaClinique)
@@ -348,7 +348,7 @@ active_LTFU$diff_NexVisit_LastVisitCHT <- active_LTFU$NextVisitDate - active_LTF
 active_LTFU$diff_reportdate_NexVisit <- report_date - active_LTFU$NextVisitDate
 
 a1 <- filter(active_LTFU, active_LTFU$NextVisitDate >= report_date)
-a2 <- filter(active_LTFU, diff_reportdate_NexVisit <=90)
+a2 <- filter(active_LTFU, active_LTFU$NextVisitDate < report_date,active_LTFU$diff_reportdate_NexVisit <=90)
 
 active_LTFU <- mutate(active_LTFU,PactientActif_1 = ifelse(NextVisitDate >= report_date,1,0))
 active_LTFU <- mutate(active_LTFU,PactientActif_2 = ifelse(report_date - NextVisitDate <=90,1,0))
@@ -356,5 +356,66 @@ active_LTFU <- mutate(active_LTFU,PactientActif_2 = ifelse(report_date - NextVis
 
 active_LTFU <- mutate(active_LTFU,PactientActif = ifelse(NextVisitDate >= report_date,1,
                                                          ifelse((NextVisitDate < report_date) & diff_reportdate_NexVisit<=90,1,0)))
+####
+
+LTFU_date <- LTFU %>%
+    group_by(year_suivi,month_suivi = month(datesuivieffectue_clean)) %>%
+    summarise(n=n_distinct(id_patient),
+              outcome = sum(outcome_status),
+              Dead = sum(PatientDecede),
+              PatientRefuse = sum(PatientRefuse),
+              PatientTransfered = sum(PatientSuiviAilleurs),
+              PatientBackinClinic = sum(PatientRetourneALaClinique),
+              return_perc = round(PatientBackinClinic/n,2),
+              PatientNotFound = sum(PatientIntrouvable),
+              no_reported_outcome = sum(no_outcome))
+
+LTFU_date$date <- as.Date(paste(LTFU_date$year_suivi,LTFU_date$month_suivi,"01",sep = "-"))
+
+theme_set(theme_classic())
+ggplot(LTFU_date, aes(x=date)) + 
+    geom_line(aes(y=n)) + 
+    labs(title="Time Series Chart", 
+         subtitle="Returns Percentage from 'Economics' Dataset", 
+         caption="Source: Economics", 
+         y="Returns %")
 
 
+
+# labels and breaks for X axis text
+lbls <- paste0(month.abb[month(LTFU_date$date)], " ", lubridate::year(LTFU_date$date))
+brks <- LTFU_date$date
+
+
+# plot
+theme_set(theme_bw())
+ggplot(LTFU_date, aes(x=date)) + 
+    geom_line(aes(y=n)) + 
+    labs(title="Monthly Time Series", 
+         subtitle="Returns Percentage from Economics Dataset", 
+         caption="Source: PLR", 
+         y="Nb Patients") +  # title and caption
+    scale_x_date(labels = lbls, 
+                 breaks = brks) +  # change to monthly ticks and labels
+    theme(axis.text.x = element_text(angle = 90, vjust=0.5),  # rotate x axis text
+          panel.grid.minor = element_blank())  # turn off minor grid
+
+
+theme_set(theme_bw())
+p <- ggplot(LTFU_date, aes(x=date)) 
+    p <- p + geom_bar( stat="identity",aes(y=n),fill = "blue") 
+    p <- p + geom_line(aes(y=PatientBackinClinic,colour = "Back in Care"),color = "red") + geom_point(aes(y=PatientBackinClinic),color = "red")
+    p <- p + scale_colour_manual(values = c("blue", "red"))
+    p <- p + labs(title="Monthly Tracking Series", 
+         subtitle="LTFU tracked", 
+         caption="Source: PLR", 
+         y="Nb Patients") +  # title and caption
+    scale_x_date(labels = lbls, 
+                 breaks = brks) +  # change to monthly ticks and labels
+    theme(axis.text.x = element_text(angle = 90, vjust=0.5),  # rotate x axis text
+          panel.grid.minor = element_blank())  # turn off minor grid
+    p
+
+### relost
+    
+    
