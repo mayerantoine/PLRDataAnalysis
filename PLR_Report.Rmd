@@ -1,0 +1,96 @@
+---
+title: "Patient Linkage and Retention"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Patient Linkage and Retention
+
+```{r include=FALSE}
+
+library(tidyverse)
+library(lubridate)
+
+    rm(list = ls())
+            rawdata <- read_csv("plr_20170803.csv", na=c("NULL","NA","N/A"))
+            
+            names(rawdata) <- make.names(names(rawdata))
+            rawdata$datesuivieffectue <- mdy(rawdata$datesuivieffectue)
+            rawdata$DateRetourALaClinique <- mdy(rawdata$DateRetourALaClinique)
+            rawdata$datenaissance <- mdy(rawdata$datenaissance)
+            rawdata$FicheCrééeLe <- mdy(rawdata$FicheCrééeLe)
+            rawdata$lastserviceeventdateemr <- mdy(rawdata$lastserviceeventdateemr)
+            rawdata$lastserviceeventdatecht <- mdy(rawdata$lastserviceeventdatecht)
+            rawdata$NextVisitDate <- mdy(rawdata$NextVisitDate)
+            rawdata <- cbind(id= as.numeric(rownames(rawdata)),rawdata)
+            
+            # Recode TypeRelance
+            
+            plr <- rawdata
+            plr$TypeRelance_clean <- "NA"
+            plr[grep("Communautaire",plr$TypeRelance),]$TypeRelance_clean <- "DAC"
+            plr[grep("perdu",plr$TypeRelance),]$TypeRelance_clean <- "LTFU"
+            plr[grep("Rendez-vous",plr$TypeRelance),]$TypeRelance_clean <- "Missed RDV"
+            plr[grep("Verification",plr$TypeRelance),]$TypeRelance_clean <- "Geolocate"
+            plr[grep("VIH+",plr$TypeRelance),]$TypeRelance_clean <- "HIV Pos"
+            plr[grep("PréARV",plr$TypeRelance),]$TypeRelance_clean <- "PreART"
+            
+            
+            # import plr mapping to add partner, snu1, snu2
+            plr_mapping <-  read_csv("plr_mapping.csv")
+            plr <- left_join(plr,plr_mapping, by= c("Institution"="facility"))
+            
+            
+            plr <- plr %>% mutate(datesuivieffectue_clean = if_else(datesuivieffectue - FicheCrééeLe < 0, 
+                                                               FicheCrééeLe,datesuivieffectue))
+            
+            plr$monthyr_suvi <- paste(month(plr$datesuivieffectue_clean,label =T),year(plr$datesuivieffectue_clean),sep="")
+            
+            plr$year_suivi <- year(plr$datesuivieffectue_clean)
+            
+            # Calculate age
+            plr <- plr %>% mutate(age_suivi = round((datesuivieffectue - datenaissance)/365,0))
+            plr <- plr %>% mutate(age_group = ifelse(age_suivi <= 15, "Peds","Adult"))
+
+```
+
+
+```{r }
+follow_up_by_reason <- plr %>% group_by(TypeRelance_clean,typesuivi,SNU1,Partner,sexe) %>% 
+                                summarise(n = n_distinct(id_patient))
+
+# by type suivi
+ggplot(follow_up_by_reason,aes(TypeRelance_clean,n)) + 
+                                    geom_col()
+
+follow_up_by_reason <- filter(follow_up_by_reason,!TypeRelance_clean %in% c("HIV Pos","PreART"))
+
+```
+
+
+
+```{r }
+
+ggplot(follow_up_by_reason,aes(TypeRelance_clean,n)) + 
+    geom_col()+
+    facet_grid(~typesuivi)
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r include= FALSE}
+
+
+# by type suivi
+
+
+
+```
+
+

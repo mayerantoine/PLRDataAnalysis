@@ -1,0 +1,282 @@
+---
+title: "Patient Linkage and Retention"
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r include=FALSE}
+
+library(tidyverse)
+library(lubridate)
+
+    rm(list = ls())
+            rawdata <- read_csv("plr_20170803.csv", na=c("NULL","NA","N/A"))
+            
+            names(rawdata) <- make.names(names(rawdata))
+            rawdata$datesuivieffectue <- mdy(rawdata$datesuivieffectue)
+            rawdata$DateRetourALaClinique <- mdy(rawdata$DateRetourALaClinique)
+            rawdata$datenaissance <- mdy(rawdata$datenaissance)
+            rawdata$FicheCrééeLe <- mdy(rawdata$FicheCrééeLe)
+            rawdata$lastserviceeventdateemr <- mdy(rawdata$lastserviceeventdateemr)
+            rawdata$lastserviceeventdatecht <- mdy(rawdata$lastserviceeventdatecht)
+            rawdata$NextVisitDate <- mdy(rawdata$NextVisitDate)
+            rawdata <- cbind(id= as.numeric(rownames(rawdata)),rawdata)
+            
+            # Recode TypeRelance
+            
+            plr <- rawdata
+            plr$TypeRelance_clean <- "NA"
+            plr[grep("Communautaire",plr$TypeRelance),]$TypeRelance_clean <- "DAC"
+            plr[grep("perdu",plr$TypeRelance),]$TypeRelance_clean <- "LTFU"
+            plr[grep("Rendez-vous",plr$TypeRelance),]$TypeRelance_clean <- "Missed RDV"
+            plr[grep("Verification",plr$TypeRelance),]$TypeRelance_clean <- "Geolocate"
+            plr[grep("VIH+",plr$TypeRelance),]$TypeRelance_clean <- "HIV Pos"
+            plr[grep("PréARV",plr$TypeRelance),]$TypeRelance_clean <- "PreART"
+            
+            
+            # import plr mapping to add partner, snu1, snu2
+            plr_mapping <-  read_csv("plr_mapping.csv")
+            plr <- left_join(plr,plr_mapping, by= c("Institution"="facility"))
+            
+            
+            plr <- plr %>% mutate(datesuivieffectue_clean = if_else(datesuivieffectue - FicheCrééeLe < 0, 
+                                                               FicheCrééeLe,datesuivieffectue))
+            
+            plr$monthyr_suvi <- paste(month(plr$datesuivieffectue_clean,label =T),year(plr$datesuivieffectue_clean),sep="")
+            
+            plr$year_suivi <- year(plr$datesuivieffectue_clean)
+            
+            # Calculate age
+            plr <- plr %>% mutate(age_suivi = round((datesuivieffectue - datenaissance)/365,0))
+            plr <- plr %>% mutate(age_group = ifelse(age_suivi <= 15, "Peds","Adult"))
+
+```
+
+# Tracking
+
+## Tracking by Reason
+
+```{r }
+follow_up_by_reason <- plr %>% group_by(TypeRelance_clean,typesuivi,SNU1,Partner,sexe) %>% 
+                                summarise(n = n_distinct(id_patient))
+
+# by type suivi
+ggplot(follow_up_by_reason,aes(TypeRelance_clean,n)) + 
+                                geom_col()
+
+follow_up_by_reason <- filter(follow_up_by_reason,!TypeRelance_clean %in% c("HIV Pos","PreART"))
+```
+
+##   by Reason and Type
+
+```{r}
+
+ggplot(follow_up_by_reason,aes(TypeRelance_clean,n)) + 
+    geom_col()+
+    facet_grid(~typesuivi)
+```
+
+##  Activities split by partner
+
+```{r}
+ggplot(follow_up_by_reason,aes(TypeRelance_clean,n)) + 
+    geom_bar(stat= "identity")+
+    facet_wrap(~Partner)+
+    coord_flip()
+```
+
+##  Overall Trend 
+
+```{r}
+
+trend_by_reason <- plr %>% group_by(TypeRelance_clean,SNU1,Partner,date = floor_date(datesuivieffectue_clean, "month"),year_suivi,monthyr_suvi,month = month(datesuivieffectue_clean, label= T)) %>% 
+    summarise(n = n_distinct(id_patient))
+
+# labels and breaks for X axis text
+lbls <- paste0(month.abb[month(trend_by_reason$date)], " ", lubridate::year(trend_by_reason$date))
+brks <- trend_by_reason$date
+
+# Overall trend
+ggplot(trend_by_reason,aes(date,n))+
+    geom_bar(stat = "identity")+
+    labs(title="Monthly Tracking", 
+         subtitle="PLR Monthly Tracking", 
+         caption="Source: PLR", 
+         y="Nb Patients") +  # title and caption
+    scale_x_date(labels = lbls, 
+                 breaks = brks) +  # change to monthly ticks and labels
+    theme(axis.text.x = element_text(angle = 90, vjust=0.5),  # rotate x axis text
+          panel.grid.minor = element_blank())  # turn off minor grid
+
+```
+
+
+## Trend by Reason
+
+```{r}
+
+trend_by_reason <- filter(trend_by_reason,!TypeRelance_clean %in% c("HIV Pos","PreART"))
+
+
+ggplot(trend_by_reason,aes(date,n))+
+    geom_bar(stat = "identity")+
+    facet_wrap(~TypeRelance_clean)+
+    labs(title="Monthly Tracking", 
+         subtitle="PLR Monthly Tracking", 
+         caption="Source: PLR", 
+         y="Nb Patients") +  # title and caption
+    scale_x_date(labels = lbls, 
+                 breaks = brks) +  # change to monthly ticks and labels
+    theme(axis.text.x = element_text(angle = 60, vjust=0.5),  # rotate x axis text
+          panel.grid.minor = element_blank())  # turn off minor grid
+```
+
+# LTFU
+
+## Tracking LTFU
+
+```{r include=FALSE}
+LTFU <- plr %>% filter(TypeRelance_clean == "LTFU") %>% 
+                group_by(id_patient) %>%
+                slice( which.max(datesuivieffectue_clean))
+LTFU <- ungroup(LTFU)
+LTFU$PatientDecede <- ifelse(is.na(LTFU$PatientDecede),0,LTFU$PatientDecede)
+LTFU$PatientRetourneALaClinique <- ifelse(is.na(LTFU$PatientRetourneALaClinique),0,LTFU$PatientRetourneALaClinique)
+LTFU$PatientRefuse <- ifelse(is.na(LTFU$PatientRefuse),0,LTFU$PatientRefuse)
+LTFU$PatientSuiviAilleurs <- ifelse(is.na(LTFU$PatientSuiviAilleurs),0,LTFU$PatientSuiviAilleurs)
+LTFU$PatientIntrouvable <- ifelse(is.na(LTFU$PatientIntrouvable),0,LTFU$PatientIntrouvable)
+
+LTFU <- mutate(LTFU,outcome_check = PatientDecede+PatientRefuse+PatientSuiviAilleurs+PatientRetourneALaClinique+PatientIntrouvable)
+LTFU <- filter(LTFU,outcome_check <=1)
+
+## all outcome except patientintrouvable
+LTFU$outcome_status <-as.integer(LTFU$PatientDecede | 
+                                 LTFU$PatientRefuse |
+                                 LTFU$PatientSuiviAilleurs | 
+                                 LTFU$PatientRetourneALaClinique )
+
+LTFU$no_outcome <- ifelse(LTFU$outcome_check == 0,1,0)
+```
+
+```{r}
+
+trend_by_reason_ltfu <- plr %>%  filter(TypeRelance_clean == "LTFU") %>%
+    group_by(TypeRelance_clean,SNU1,Partner,year_suivi,month = month(datesuivieffectue_clean,label= T)) %>% 
+    summarise(n = n_distinct(id_patient)) 
+   
+
+ggplot(trend_by_reason_ltfu,aes(month,n))+
+    geom_bar(stat = "identity")+
+    facet_grid(~year_suivi)+
+    labs(title="Monthly Tracking", 
+         subtitle="PLR Monthly Tracking", 
+         caption="Source: PLR", 
+         y="Nb Patients") +  # title and caption
+    theme(axis.text.x = element_text(angle = 60, vjust=0.5),  # rotate x axis text
+          panel.grid.minor = element_blank())  # turn off minor grid
+```
+
+## LTFU Cascade
+```{r}
+var_outcome <- c("PatientDecede","PatientRefuse","PatientRetourneALaClinique","PatientSuiviAilleurs","PatientIntrouvable","no_outcome")
+
+LTFU_2 <- select(LTFU,id_patient,sexe,typesuivi,age_group,age_suivi,datesuivieffectue_clean,year_suivi,
+                 monthyr_suvi,Institution,Partner,SNU1,SNU2,one_of(var_outcome))
+
+
+LTFU_2 <- gather(LTFU_2,"patient_outcome","var",13:18) %>% filter(var == 1)
+
+
+## PLR Cascade From janv 2015 - to July 2017
+tab <- table(LTFU_2$patient_outcome)
+tab_cascade <- as_data_frame(tab)
+names(tab_cascade) <- c("outcomes","nb")
+
+f_cascade <- function (tab_cascade) {
+    ko <- filter(tab_cascade, outcomes %in% c("PatientDecede","PatientRefuse","PatientRetourneALaClinique","PatientSuiviAilleurs"))
+    tot_contacted <- sum(tab_cascade$nb)
+    
+    dt <- data.frame(c("Tot. Contacted","Known Outcomes"),c(tot_contacted,sum(ko$nb)))
+    names(dt) <- c("outcomes","nb")
+    tab_cascade <- rbind(tab_cascade,dt)
+    tab_cascade$percent <- round((tab_cascade$nb/tot_contacted)*100,1)
+    
+    tab_cascade
+}
+
+tab_cascade <- f_cascade(tab_cascade)
+tab_cascade_suivi <- table(LTFU_2$typesuivi,LTFU_2$patient_outcome)
+tab_cascade_suivi <- as_data_frame(tab_cascade_suivi)
+names(tab_cascade_suivi) <- c("typesuivi","outcomes","nb")
+
+tab_cascade_visite <- filter(tab_cascade_suivi,typesuivi =="Visite") %>% select(outcomes,nb)
+tab_cascade_appel <- filter(tab_cascade_suivi,typesuivi =="Appel") %>% select(outcomes,nb)
+
+tab_cascade_visite <- f_cascade(tab_cascade_visite)
+tab_cascade_appel <- f_cascade(tab_cascade_appel)
+
+
+```
+
+
+```{r}
+# percentage
+tab_cascade %>% 
+    filter(outcomes %in% c("Tot. Contacted","Known Outcomes","PatientRetourneALaClinique")) %>%
+    ggplot() +
+    geom_bar(stat= "identity" ,aes(reorder(outcomes,-percent),percent) )+ 
+    geom_text(aes(x=outcomes,y=percent,label=paste(nb,"(",percent,"%",")")), vjust=1.5, colour="white") +
+    labs(title="PLR Cascade From janv 2015 - to July 2017", 
+         caption="Source: PLR", 
+         x= "outcomes",
+         y="Nb Patients") +  
+    theme(axis.text.x = element_text(angle = 30, vjust=0.5),  # rotate x axis text
+          panel.grid.minor = element_blank())  # turn off minor grid
+
+```
+
+
+## Cascade Visite
+```{r}
+
+
+tab_cascade_visite %>% 
+    filter(outcomes %in% c("Tot. Contacted","Known Outcomes","PatientRetourneALaClinique")) %>%
+    ggplot() +
+    geom_bar(stat= "identity" ,aes(reorder(outcomes,-percent),percent) )+ 
+    geom_text(aes(x=outcomes,y=percent,label=paste(nb,"(",percent,"%",")")), vjust=1.5, colour="white") +
+    labs(title="PLR Cascade From janv 2015 - to July 2017", 
+         caption="Source: PLR", 
+         x= "outcomes",
+         y="Nb Patients") +  
+    theme(axis.text.x = element_text(angle = 30, vjust=0.5),  # rotate x axis text
+          panel.grid.minor = element_blank())  # turn off minor grid
+````
+
+
+## Cascade Appel
+```{r}
+
+tab_cascade_appel %>% 
+    filter(outcomes %in% c("Tot. Contacted","Known Outcomes","PatientRetourneALaClinique")) %>%
+    ggplot() +
+    geom_bar(stat= "identity" ,aes(reorder(outcomes,-percent),percent) )+ 
+    geom_text(aes(x=outcomes,y=percent,label=paste(nb,"(",percent,"%",")")), vjust=1.5, colour="white") +
+    labs(title="PLR Cascade From janv 2015 - to July 2017", 
+         caption="Source: PLR", 
+         x= "outcomes",
+         y="Nb Patients") +  
+    theme(axis.text.x = element_text(angle = 30, vjust=0.5),  # rotate x axis text
+          panel.grid.minor = element_blank())  # turn off minor grid
+````
+
+
+
+```{r}
+
+
+````
+

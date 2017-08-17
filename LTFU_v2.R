@@ -2,50 +2,50 @@
 library(tidyverse)
 library(lubridate)
 
-rm(list = ls())
-rawdata <- read_csv("plr_20170803.csv", na=c("NULL","NA","N/A"))
 
-names(rawdata) <- make.names(names(rawdata))
-rawdata$datesuivieffectue <- mdy(rawdata$datesuivieffectue)
-rawdata$DateRetourALaClinique <- mdy(rawdata$DateRetourALaClinique)
-rawdata$datenaissance <- mdy(rawdata$datenaissance)
-rawdata$FicheCrééeLe <- mdy(rawdata$FicheCrééeLe)
-rawdata$lastserviceeventdateemr <- mdy(rawdata$lastserviceeventdateemr)
-rawdata$lastserviceeventdatecht <- mdy(rawdata$lastserviceeventdatecht)
-rawdata$NextVisitDate <- mdy(rawdata$NextVisitDate)
-rawdata <- cbind(id= as.numeric(rownames(rawdata)),rawdata)
+            rm(list = ls())
+            rawdata <- read_csv("plr_20170803.csv", na=c("NULL","NA","N/A"))
+            
+            names(rawdata) <- make.names(names(rawdata))
+            rawdata$datesuivieffectue <- mdy(rawdata$datesuivieffectue)
+            rawdata$DateRetourALaClinique <- mdy(rawdata$DateRetourALaClinique)
+            rawdata$datenaissance <- mdy(rawdata$datenaissance)
+            rawdata$FicheCrééeLe <- mdy(rawdata$FicheCrééeLe)
+            rawdata$lastserviceeventdateemr <- mdy(rawdata$lastserviceeventdateemr)
+            rawdata$lastserviceeventdatecht <- mdy(rawdata$lastserviceeventdatecht)
+            rawdata$NextVisitDate <- mdy(rawdata$NextVisitDate)
+            rawdata <- cbind(id= as.numeric(rownames(rawdata)),rawdata)
+            
+            # Recode TypeRelance
+            
+            plr <- rawdata
+            plr$TypeRelance_clean <- "NA"
+            plr[grep("Communautaire",plr$TypeRelance),]$TypeRelance_clean <- "DAC"
+            plr[grep("perdu",plr$TypeRelance),]$TypeRelance_clean <- "LTFU"
+            plr[grep("Rendez-vous",plr$TypeRelance),]$TypeRelance_clean <- "Missed RDV"
+            plr[grep("Verification",plr$TypeRelance),]$TypeRelance_clean <- "Geolocate"
+            plr[grep("VIH+",plr$TypeRelance),]$TypeRelance_clean <- "HIV Pos"
+            plr[grep("PréARV",plr$TypeRelance),]$TypeRelance_clean <- "PreART"
+            
+            
+            # import plr mapping to add partner, snu1, snu2
+            plr_mapping <-  read_csv("plr_mapping.csv")
+            plr <- left_join(plr,plr_mapping, by= c("Institution"="facility"))
+            
+            
+            plr <- plr %>% mutate(datesuivieffectue_clean = if_else(datesuivieffectue - FicheCrééeLe < 0, 
+                                                               FicheCrééeLe,datesuivieffectue))
+            
+            plr$monthyr_suvi <- paste(month(plr$datesuivieffectue_clean,label = T),year(plr$datesuivieffectue_clean),sep=" ")
+            
+            plr$year_suivi <- year(plr$datesuivieffectue_clean)
+            
+            # Calculate age
+            plr <- plr %>% mutate(age_suivi = round((datesuivieffectue - datenaissance)/365,0))
+            plr <- plr %>% mutate(age_group = ifelse(age_suivi <= 15, "Peds","Adult"))
+            
 
-# Recode TypeRelance
 
-plr <- rawdata
-plr$TypeRelance_clean <- "NA"
-plr[grep("Communautaire",plr$TypeRelance),]$TypeRelance_clean <- "DAC"
-plr[grep("perdu",plr$TypeRelance),]$TypeRelance_clean <- "LTFU"
-plr[grep("Rendez-vous",plr$TypeRelance),]$TypeRelance_clean <- "Missed RDV"
-plr[grep("Verification",plr$TypeRelance),]$TypeRelance_clean <- "Geolocate"
-plr[grep("VIH+",plr$TypeRelance),]$TypeRelance_clean <- "HIV Pos"
-plr[grep("PréARV",plr$TypeRelance),]$TypeRelance_clean <- "PreART"
-
-
-# import plr mapping to add partner, snu1, snu2
-plr_mapping <-  read_csv("plr_mapping.csv")
-plr <- left_join(plr,plr_mapping, by= c("Institution"="facility"))
-
-# Calculate datesuivi clean
-# suivi <- plr %>% select(id_patient,datesuivieffectue,FicheCrééeLe) %>%
-#    mutate(diff= datesuivieffectue - FicheCrééeLe ) %>%
-#    filter(diff >= 0 )
-
-plr <- plr %>% mutate(datesuivieffectue_clean = if_else(datesuivieffectue - FicheCrééeLe < 0, 
-                                                   FicheCrééeLe,datesuivieffectue))
-
-plr$monthyr_suvi <- paste(month(plr$datesuivieffectue_clean,label = T),year(plr$datesuivieffectue_clean),sep=" ")
-
-plr$year_suivi <- year(plr$datesuivieffectue_clean)
-
-# Calculate age
-plr <- plr %>% mutate(age_suivi = round((datesuivieffectue - datenaissance)/365,0))
-plr <- plr %>% mutate(age_group = ifelse(age_suivi <= 15, "Peds","Adult"))
 
 ## Tracking by reason
 follow_up_by_reason <- plr %>% group_by(TypeRelance_clean,typesuivi,SNU1,Partner,sexe) %>% 
@@ -61,10 +61,33 @@ ggplot(follow_up_by_reason,aes(TypeRelance_clean,n)) +
     facet_grid(~typesuivi)
 
 # by partner
-ggplot(follow_up_by_reason,aes(Partner,n)) + 
+ggplot(follow_up_by_reason,aes(Partner,n/sum(n))) + 
     geom_col()+
     coord_flip()+
     facet_wrap(~TypeRelance_clean)
+
+ggplot(follow_up_by_reason,aes(TypeRelance_clean,n/sum(n))) + 
+    geom_col()+
+    coord_flip()+
+    facet_wrap(~Partner)
+
+ggplot(follow_up_by_reason,aes(TypeRelance_clean,n)) + 
+    geom_col()+
+    coord_flip()+
+    facet_wrap(~Partner)
+
+pie <- follow_up_by_reason %>%# filter(TypeRelance_clean %in%  c("DAC","Geolocate","Missed RDV","LTFU")) %>%
+    ggplot(aes(x = "", y=n/sum(n), fill = factor(TypeRelance_clean))) + 
+    geom_bar(width = 1, stat = "identity") +
+    theme(axis.line = element_blank(), 
+          plot.title = element_text(hjust=0.5)) + 
+    labs(fill="class", 
+         x=NULL, 
+         y=NULL, 
+         title="Pie Chart of class", 
+         caption="Source: mpg")
+
+pie + coord_polar(theta = "y", start=0) + facet_wrap(~Partner)
 
 
 ggplot(follow_up_by_reason,aes(TypeRelance_clean,n)) + 
@@ -79,19 +102,45 @@ ggplot(follow_up_by_reason,aes(SNU1,n)) +
 
 ## Trend by reason
 
-trend_by_reason <- plr %>% group_by(TypeRelance_clean,SNU1,Partner,year_suivi,month = month(datesuivieffectue_clean, label= T)) %>% 
+trend_by_reason <- plr %>% group_by(TypeRelance_clean,SNU1,Partner,date = floor_date(datesuivieffectue_clean, "month"),year_suivi,month = month(datesuivieffectue_clean, label= T)) %>% 
     summarise(n = n_distinct(id_patient))
 
+# labels and breaks for X axis text
+lbls <- paste0(month.abb[month(trend_by_reason$date)], " ", lubridate::year(trend_by_reason$date))
+brks <- trend_by_reason$date
+
+
 # Overall trend
-ggplot(trend_by_reason,aes(as.factor(month),n))+
-    geom_col()+
-    facet_grid(~year_suivi)
+ggplot(trend_by_reason,aes(date,n))+
+    geom_bar(stat = "identity")+
+    labs(title="Monthly Tracking", 
+         subtitle="PLR Monthly Tracking", 
+         caption="Source: PLR", 
+         y="Nb Patients") +  # title and caption
+    scale_x_date(labels = lbls, 
+                 breaks = brks) +  # change to monthly ticks and labels
+    theme(axis.text.x = element_text(angle = 90, vjust=0.5),  # rotate x axis text
+          panel.grid.minor = element_blank())  # turn off minor grid
 
 # trend by reason by year month
-ggplot(trend_by_reason,aes(as.factor(month),n))+
+trend_by_reason <- filter(trend_by_reason,!TypeRelance_clean %in% c("HIV Pos","PreART"))
+
+ggplot(trend_by_reason,aes(date,n))+
     geom_col( width=.8)+
     facet_grid(TypeRelance_clean~year_suivi) +
     theme(axis.text.x = element_text(angle=65, vjust=0.6))
+
+ggplot(trend_by_reason,aes(date,n))+
+    geom_bar(stat = "identity")+
+    facet_grid(TypeRelance_clean ~.)+
+    labs(title="Monthly Tracking", 
+         subtitle="PLR Monthly Tracking", 
+         caption="Source: PLR", 
+         y="Nb Patients") +  # title and caption
+    scale_x_date(labels = lbls, 
+                 breaks = brks) +  # change to monthly ticks and labels
+    theme(axis.text.x = element_text(angle = 90, vjust=0.5),  # rotate x axis text
+          panel.grid.minor = element_blank())  # turn off minor grid
 
 # trend by department  by year month
 ggplot(trend_by_reason,aes(as.factor(month),n))+
@@ -292,7 +341,7 @@ tb_findings <- plr %>% filter(TypeRelance_clean == "LTFU") %>%
                            age_group,age_suivi,year_suivi,monthyr,Institution,
                            SNU1,SNU2,Partner, one_of(findings))
 
-## number of records with no findings
+## number of records with no findings ??????
 
 ## overall findings
 t <- tb_findings %>%  select(one_of(findings)) %>%  summarise_each(funs(sum(.,na.rm=T)))
@@ -317,16 +366,107 @@ ggplot(t_by_SNU1) +
     facet_wrap(~findings)+
     theme(axis.text.x = element_text(angle=90, vjust=0.4))
 
+#by partner
+t_by_partner <-  tb_findings %>% group_by(Partner) %>% select(one_of(findings)) %>% summarise_each(funs(sum(.,na.rm=T)))
+t_by_partner <- gather(t_by_partner,"findings","n",2:13)
 
+ggplot(t_by_partner) +
+    geom_bar(stat = "identity", aes(reorder(findings,n),n))+
+    facet_wrap(~Partner)+
+    theme(axis.text.x = element_text(angle=90, vjust=0.4))
+
+ggplot(t_by_partner) +
+    geom_bar(stat = "identity", aes(reorder(Partner,n),n))+
+    facet_wrap(~findings)+
+    theme(axis.text.x = element_text(angle=90, vjust=0.4))
 ### categorical model
 
 var_outcome <- c("PatientDecede","PatientRefuse","PatientRetourneALaClinique","PatientSuiviAilleurs","PatientIntrouvable","no_outcome")
 
-LTFU_2 <- select(LTFU,id_patient,sexe,age_group,age_suivi,datesuivieffectue_clean,year_suivi,
+LTFU_2 <- select(LTFU,id_patient,sexe,typesuivi,age_group,age_suivi,datesuivieffectue_clean,year_suivi,
                  monthyr_suvi,Institution,Partner,SNU1,SNU2,one_of(var_outcome))
 
 
-LTFU_2 <- gather(LTFU_2,"patient_outcome","var",12:17) %>% filter(var == 1)
+LTFU_2 <- gather(LTFU_2,"patient_outcome","var",13:18) %>% filter(var == 1)
+
+
+## PLR Cascade From janv 2015 - to July 2017
+tab <- table(LTFU_2$patient_outcome)
+tab_cascade <- as_data_frame(tab)
+names(tab_cascade) <- c("outcomes","nb")
+
+f_cascade <- function (tab_cascade) {
+    ko <- filter(tab_cascade, outcomes %in% c("PatientDecede","PatientRefuse","PatientRetourneALaClinique","PatientSuiviAilleurs"))
+    tot_contacted <- sum(tab_cascade$nb)
+    
+    dt <- data.frame(c("Tot. Contacted","Known Outcomes"),c(tot_contacted,sum(ko$nb)))
+    names(dt) <- c("outcomes","nb")
+    tab_cascade <- rbind(tab_cascade,dt)
+    tab_cascade$percent <- round((tab_cascade$nb/tot_contacted)*100,1)
+    
+    tab_cascade
+}
+
+tab_cascade <- f_cascade(tab_cascade)
+
+
+# percentage
+tab_cascade %>% 
+    filter(outcomes %in% c("Tot. Contacted","Known Outcomes","PatientRetourneALaClinique")) %>%
+    ggplot() +
+    geom_bar(stat= "identity" ,aes(reorder(outcomes,-percent),percent) )+ 
+    geom_text(aes(x=outcomes,y=percent,label=paste(nb,"(",percent,"%",")")), vjust=1.5, colour="white") +
+    labs(title="PLR Cascade From janv 2015 - to July 2017", 
+         caption="Source: PLR", 
+         x= "outcomes",
+         y="Nb Patients") +  
+    theme(axis.text.x = element_text(angle = 30, vjust=0.5),  # rotate x axis text
+          panel.grid.minor = element_blank())  # turn off minor grid
+
+
+## PLR Cascade From janv 2015 - to July 2017 by typesuivi
+tab_cascade_suivi <- table(LTFU_2$typesuivi,LTFU_2$patient_outcome)
+tab_cascade_suivi <- as_data_frame(tab_cascade_suivi)
+names(tab_cascade_suivi) <- c("typesuivi","outcomes","nb")
+
+tab_cascade_visite <- filter(tab_cascade_suivi,typesuivi =="Visite") %>% select(outcomes,nb)
+tab_cascade_appel <- filter(tab_cascade_suivi,typesuivi =="Appel") %>% select(outcomes,nb)
+
+tab_cascade_visite <- f_cascade(tab_cascade_visite)
+tab_cascade_appel <- f_cascade(tab_cascade_appel)
+
+
+# percentage
+tab_cascade_visite %>% 
+    filter(outcomes %in% c("Tot. Contacted","Known Outcomes","PatientRetourneALaClinique")) %>%
+    ggplot() +
+    geom_bar(stat= "identity" ,aes(reorder(outcomes,-percent),percent) )+ 
+    geom_text(aes(x=outcomes,y=percent,label=paste(nb,"(",percent,"%",")")), vjust=1.5, colour="white") +
+    labs(title="PLR Cascade From janv 2015 - to July 2017", 
+         caption="Source: PLR", 
+         x= "outcomes",
+         y="Nb Patients") +  
+    theme(axis.text.x = element_text(angle = 30, vjust=0.5),  # rotate x axis text
+          panel.grid.minor = element_blank())  # turn off minor grid
+
+
+# percentage
+tab_cascade_appel %>% 
+    filter(outcomes %in% c("Tot. Contacted","Known Outcomes","PatientRetourneALaClinique")) %>%
+    ggplot() +
+    geom_bar(stat= "identity" ,aes(reorder(outcomes,-percent),percent) )+ 
+    geom_text(aes(x=outcomes,y=percent,label=paste(nb,"(",percent,"%",")")), vjust=1.5, colour="white") +
+    labs(title="PLR Cascade From janv 2015 - to July 2017", 
+         caption="Source: PLR", 
+         x= "outcomes",
+         y="Nb Patients") +  
+    theme(axis.text.x = element_text(angle = 30, vjust=0.5),  # rotate x axis text
+          panel.grid.minor = element_blank())  # turn off minor grid
+
+
+
+
+
 
 tab1 <- table(LTFU_2$sexe,LTFU_2$age_group ,LTFU_2$patient_outcome)
 ftable(tab1)
@@ -370,6 +510,19 @@ LTFU_date <- LTFU %>%
               PatientNotFound = sum(PatientIntrouvable),
               no_reported_outcome = sum(no_outcome))
 
+
+LTFU_date2 <- LTFU %>%
+    group_by(date = floor_date(datesuivieffectue_clean, "month")) %>%
+    summarise(n=n_distinct(id_patient),
+              outcome = sum(outcome_status),
+              Dead = sum(PatientDecede),
+              PatientRefuse = sum(PatientRefuse),
+              PatientTransfered = sum(PatientSuiviAilleurs),
+              PatientBackinClinic = sum(PatientRetourneALaClinique),
+              return_perc = round(PatientBackinClinic/n,2),
+              PatientNotFound = sum(PatientIntrouvable),
+              no_reported_outcome = sum(no_outcome))
+
 LTFU_date$date <- as.Date(paste(LTFU_date$year_suivi,LTFU_date$month_suivi,"01",sep = "-"))
 
 theme_set(theme_classic())
@@ -402,7 +555,7 @@ ggplot(LTFU_date, aes(x=date)) +
 
 
 theme_set(theme_bw())
-p <- ggplot(LTFU_date, aes(x=date)) 
+p <- ggplot(LTFU_date2, aes(x=date)) 
     p <- p + geom_bar( stat="identity",aes(y=n),fill = "blue") 
     p <- p + geom_line(aes(y=PatientBackinClinic,colour = "Back in Care"),color = "red") + geom_point(aes(y=PatientBackinClinic),color = "red")
     p <- p + scale_colour_manual(values = c("blue", "red"))
@@ -417,5 +570,4 @@ p <- ggplot(LTFU_date, aes(x=date))
     p
 
 ### relost
-    
     
