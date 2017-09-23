@@ -11,6 +11,12 @@ knitr::opts_chunk$set(echo = FALSE)
 
 library(tidyverse)
 library(lubridate)
+library(scales)
+library(diagram)
+library(knitr)
+library(kableExtra)
+library(xtable)
+options(knitr.table.format = "html") 
 
     rm(list = ls())
             rawdata <- read_csv("plr_20170803.csv", na=c("NULL","NA","N/A"))
@@ -52,10 +58,43 @@ library(lubridate)
             # Calculate age
             plr <- plr %>% mutate(age_suivi = round((datesuivieffectue - datenaissance)/365,0))
             plr <- plr %>% mutate(age_group = ifelse(age_suivi <= 15, "Peds","Adult"))
+            
+            min_tracked_date <- min(plr$datesuivieffectue_clean)
+            max_tracked_date <- max(plr$datesuivieffectue_clean)
+            
+            n <- nrow(rawdata)
+            c <- ncol(rawdata)
+            patient_distinct <- n_distinct(rawdata$id_patient)
+            site_distinct <- n_distinct(rawdata$Institution)
 
 ```
 
-# Tracking
+## Context
+
+* The Patient Linkage and Retention (PLR) is a Community health tracking system
+* The system allows the tracking of Patient for different reason
+    + Lost to Follow Up
+    + Missed Appointment
+    + Community Drug Distribution
+    + Geo-location
+    + PreART patients Not on ART
+    + HIV+ patients Not Enrolled
+    
+*   Patient are contacted or tracked (follow up Type) by **Phone Call** or **Home visit**
+
+## Data Analysis
+
+* We have extracted all patient tracking records from the database.
+* We have uploaed data from **`r min_tracked_date`** to **`r max_tracked_date`**
+* During that period we have done **`r n`** tracking for **`r patient_distinct`** unique patient for all reasons.
+* Those activities has been performed over the time in **`r site_distinct`** facilities  from 6 partners
+    + UGP MSPP
+    + GHESKIO
+    + CMMB
+    + PHI
+    + CDS
+    + FOSREF
+    
 
 ## Tracking by Reason
 
@@ -63,36 +102,79 @@ library(lubridate)
 follow_up_by_reason <- plr %>% group_by(TypeRelance_clean,typesuivi,SNU1,Partner,sexe) %>% 
                                 summarise(n = n_distinct(id_patient))
 
-# by type suivi
-ggplot(follow_up_by_reason,aes(TypeRelance_clean,n)) + 
-                                geom_col()
+ follow_up_by_reason2 <- plr %>% group_by(TypeRelance_clean) %>% 
+         summarise(n = n_distinct(id_patient))
+
+ 
+lbls <-c("HIV+ patients Not Enrolled","PreART patients Not on ART","Geo-location","Community Drug Distribution","Missed Appointment","Lost to Follow Up")
+# by reason
+ggplot(follow_up_by_reason2,aes(x=reorder(TypeRelance_clean,n),y=n,fill=reorder(TypeRelance_clean,n))) + 
+        geom_bar(stat = "Identity")+
+        geom_text(aes(x=reorder(TypeRelance_clean,n),y=n, label = comma(n)), colour="blue",hjust =-0.1,size = 5)+
+        coord_flip() +
+        labs(title="# of Patient Contacted by Reason",
+             subtitle ="From March 2015 - July 2017",
+         caption="Source: PLR", 
+         x="",
+         y="# unique Patients") +  
+        scale_x_discrete(labels = lbls )+
+    scale_fill_brewer()+
+    scale_y_continuous(breaks = seq(0,40000,10000),limits =c(0,40000),labels =comma)+
+        guides(fill=FALSE)+
+        theme(axis.text.x = element_text(size = 13),
+              axis.text.y = element_text(size = 14), 
+              panel.background = element_blank(), 
+              axis.line=element_line(),
+              axis.title.x = element_text(size = 14),
+              plot.title = element_text(size = 16))  
+
+                           
 
 follow_up_by_reason <- filter(follow_up_by_reason,!TypeRelance_clean %in% c("HIV Pos","PreART"))
 ```
 
-##   by Reason and Type
+## Tracking by FollowUp type
 
 ```{r}
 
-ggplot(follow_up_by_reason,aes(TypeRelance_clean,n)) + 
-    geom_col()+
-    facet_grid(~typesuivi)
+ follow_up_by_reason_type <- plr %>% #filter(!TypeRelance_clean %in% c("HIV Pos","PreART")) %>% 
+                                    group_by(TypeRelance_clean,typesuivi) %>% 
+                                    summarise(n = n_distinct(id_patient)) %>%
+                                    mutate(percent_weight = n/sum(n))
+
+lbls <-c("HIV+ patients Not Enrolled","Lost to Follow Up","Missed Appointment","PreART patients Not on ART","Community Drug Distribution","Geo-location")
+
+ggplot(follow_up_by_reason_type, aes(x=reorder(TypeRelance_clean, percent_weight), y=percent_weight, fill=typesuivi)) +
+  geom_bar(stat="identity") +
+  geom_text(aes(label=paste0(sprintf("%.0f", percent_weight*100),"%")),size=5,
+                position=position_stack(vjust=0.5), colour="white") +
+  coord_flip() +
+  scale_y_continuous(labels = percent_format()) +
+  labs(y="% of unique patient", 
+       x="",
+       fill="",
+       title="Proportion of Patient Contacted",
+       subtitle="From March 2015 - July 2017",
+       caption="Source: PLR")+
+  scale_x_discrete(labels = lbls )+
+  scale_fill_discrete(labels=c( "Phone Calls", "Home Visits")) +
+  guides(fill=guide_legend(reverse=TRUE))+
+  theme(axis.text.x = element_text(size = 13),
+        axis.text.y = element_text(size = 14), 
+        panel.background = element_blank(),
+        axis.line=element_line(),
+        axis.title.x = element_text(size = 14),
+        plot.title = element_text(size = 16),
+        legend.position = "bottom")  
+
 ```
 
-##  Activities split by partner
 
-```{r}
-ggplot(follow_up_by_reason,aes(TypeRelance_clean,n)) + 
-    geom_bar(stat= "identity")+
-    facet_wrap(~Partner)+
-    coord_flip()
-```
-
-##  Overall Trend 
+##  Overall Tracking Trend 
 
 ```{r}
 
-trend_by_reason <- plr %>% group_by(TypeRelance_clean,SNU1,Partner,date = floor_date(datesuivieffectue_clean, "month"),year_suivi,monthyr_suvi,month = month(datesuivieffectue_clean, label= T)) %>% 
+trend_by_reason <- plr %>% group_by(date = floor_date(datesuivieffectue_clean, "month")) %>% 
     summarise(n = n_distinct(id_patient))
 
 # labels and breaks for X axis text
@@ -101,15 +183,20 @@ brks <- trend_by_reason$date
 
 # Overall trend
 ggplot(trend_by_reason,aes(date,n))+
-    geom_bar(stat = "identity")+
-    labs(title="Monthly Tracking", 
-         subtitle="PLR Monthly Tracking", 
+    geom_line(aes(y=n), colour = "#0072B2",size = 1.5)+
+   # geom_point(aes(y=n))+
+    labs(title="Monthly Tracking Trend (all reasons included)", 
+         subtitle="# of patient tracked by month from March 2015- July 2017", 
          caption="Source: PLR", 
-         y="Nb Patients") +  # title and caption
-    scale_x_date(labels = lbls, 
-                 breaks = brks) +  # change to monthly ticks and labels
-    theme(axis.text.x = element_text(angle = 90, vjust=0.5),  # rotate x axis text
-          panel.grid.minor = element_blank())  # turn off minor grid
+         y="# unique Patient",
+         x="") +  
+ # scale_x_date(labels = lbls,  breaks = brks) +  
+  theme(axis.text.x = element_text(size = 13),
+        axis.text.y = element_text(size = 14), 
+        panel.background = element_blank(), 
+        axis.line=element_line(),
+        axis.title.x = element_text(size = 14),
+        plot.title = element_text(size = 16))  
 
 ```
 
@@ -117,26 +204,63 @@ ggplot(trend_by_reason,aes(date,n))+
 ## Trend by Reason
 
 ```{r}
+trend_by_reason_relance <- plr %>% filter(!TypeRelance_clean %in% c("HIV Pos","PreART")) %>% 
+    group_by(TypeRelance_clean,date = floor_date(datesuivieffectue_clean, "month")) %>% 
+    summarise(n = n_distinct(id_patient))
 
-trend_by_reason <- filter(trend_by_reason,!TypeRelance_clean %in% c("HIV Pos","PreART"))
+# labels and breaks for X axis text
+lbls <- paste0(month.abb[month(trend_by_reason$date)], " ", lubridate::year(trend_by_reason$date))
+brks <- trend_by_reason$date
 
-
-ggplot(trend_by_reason,aes(date,n))+
-    geom_bar(stat = "identity")+
+ggplot(trend_by_reason_relance)+
+    geom_line(aes(x=date,y=n), stat="identity",size = 1.25,colour = "#0072B2")+
     facet_wrap(~TypeRelance_clean)+
-    labs(title="Monthly Tracking", 
-         subtitle="PLR Monthly Tracking", 
+    labs(title="Monthly Tracking Trend by Reason", 
+          subtitle="# of patient tracked by month from March 2015- July 2017", 
          caption="Source: PLR", 
-         y="Nb Patients") +  # title and caption
-    scale_x_date(labels = lbls, 
-                 breaks = brks) +  # change to monthly ticks and labels
-    theme(axis.text.x = element_text(angle = 60, vjust=0.5),  # rotate x axis text
-          panel.grid.minor = element_blank())  # turn off minor grid
+         y="# unique Patients",
+         x="") +  
+  #scale_x_date(labels = lbls,  breaks = brks) +  
+  theme(axis.text.x = element_text(size = 10),axis.text.y = element_text(size = 12), 
+             panel.background = element_blank(), axis.line=element_line(),axis.title.x = element_text(size = 14),
+                 plot.title = element_text(size = 16))  
+
+
 ```
 
-# LTFU
 
-## Tracking LTFU
+## Other way to look at it
+
+```{r}
+trend_by_reason_relance <- plr %>% filter(!TypeRelance_clean %in% c("HIV Pos","PreART")) %>% 
+    group_by(TypeRelance_clean,date = floor_date(datesuivieffectue_clean, "month")) %>% 
+    summarise(n = n_distinct(id_patient))
+
+# labels and breaks for X axis text
+lbls <- paste0(month.abb[month(trend_by_reason$date)], " ", lubridate::year(trend_by_reason$date))
+brks <- trend_by_reason$date
+
+ggplot(trend_by_reason_relance)+
+    geom_line(aes(x=date,y=n,colour = TypeRelance_clean), stat="identity",size = 1.25)+
+    labs(title="Monthly Tracking Trend by Reason", 
+          subtitle="# of patient tracked by month from March 2015- July 2017",
+         caption="Source: PLR", 
+         y="# unique Patients") +  
+ # scale_x_date(labels = lbls,  breaks = brks) +  
+   scale_colour_manual(values=c("#cccccc","#cccccc","#FF6300","#cccccc"))+
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12), 
+        panel.background = element_blank(), 
+        axis.line=element_line(),
+        axis.title.x = element_text(size = 12),
+        plot.title = element_text(size = 12))  
+
+
+```
+
+# Lost to Follow-Up (LTFU)
+
+## LTFU
 
 ```{r include=FALSE}
 LTFU <- plr %>% filter(TypeRelance_clean == "LTFU") %>% 
@@ -159,35 +283,289 @@ LTFU$outcome_status <-as.integer(LTFU$PatientDecede |
                                  LTFU$PatientRetourneALaClinique )
 
 LTFU$no_outcome <- ifelse(LTFU$outcome_check == 0,1,0)
+
+# active for PatientRetourneALaclinique
+report_date <- date(max(LTFU$datesuivieffectue_clean))
+LTFU$diff_NexVisit_LastVisitCHT <-LTFU$NextVisitDate - LTFU$lastserviceeventdatecht
+LTFU$diff_reportdate_NexVisit <- report_date - LTFU$NextVisitDate
+
+LTFU <- mutate(LTFU,PatientActif = ifelse(PatientRetourneALaClinique == 1,
+                                          ifelse(NextVisitDate >= report_date,1,
+                                                        ifelse((NextVisitDate < report_date) & diff_reportdate_NexVisit<=90,1,0)
+                                                 ),0
+                                          )
+               )
+
+filter_ltfu <- plr %>% filter(TypeRelance_clean == "LTFU")
+ltfu_n <- nrow(filter_ltfu)
+ltfu_p <- n_distinct(filter_ltfu$id_patient)
+ltfu_f <- n_distinct(LTFU$Institution)
+
 ```
+
+* This section show key results for LTFU tracking activities
+*  From **`r min_tracked_date`** to **`r max_tracked_date`** we have conducted **`r ltfu_n`** tracking activities and tracked **`r ltfu_p`** LTFU unique patients
+* For LTFU patients contacted  PLR registers different  outcomes 
+    + Patient is Dead
+    + Patient  refuse to come back
+    + Patient continue treatement in another facility
+    + Patient came back to the clinic
+    + Patient is not found (no outcome found)
+
+
+## Tracking LTFU by Sexe
+```{r}
+LTFU_age_sexe <- table(LTFU$age_group,LTFU$sexe)
+LTFU_age_sexe <- as.data.frame(LTFU_age_sexe)
+names(LTFU_age_sexe) <- c("Age_group","Sexe","n")
+
+ggplot(LTFU_age_sexe,aes(x=Age_group,y=n,fill=Sexe))+
+    geom_bar(stat = "identity",position="dodge")+
+    geom_text(aes(label=n), vjust=1.1, colour="white",
+        position=position_dodge(.9), size=4)+
+     labs(title="Tracking LTFU by Sexe", 
+          subtitle="# of Patient Tracked from March 2015 - July 2017",
+         caption="Source: PLR", 
+         y="# unique Patients",
+         x="")+
+     # scale_fill_manual(values = c("#0066CC","#0033FF"))+
+# scale_fill_brewer(palette="Greys")+
+  theme(axis.text.x = element_text(size = 13),
+        axis.text.y = element_text(size = 14), 
+        panel.background = element_blank(),
+        axis.line=element_line(),
+        axis.title.x = element_text(size = 14),
+                 plot.title = element_text(size = 16)) 
+
+```
+
+
+## Tracking LTFU by FollowUp Type
+```{r}
+
+LTFU_type_sexe <- table(LTFU$typesuivi,LTFU$sexe)
+LTFU_type_sexe <- as.data.frame(LTFU_type_sexe)
+names(LTFU_type_sexe) <- c("FollowUp_Type","Sexe","n")
+
+ggplot(LTFU_type_sexe,aes(x=FollowUp_Type,y=n,fill=Sexe))+
+    geom_bar(stat = "identity", width = 0.5)+
+    geom_text(aes(label=n), vjust=1.5, colour="white",
+        size=4)+
+     labs(title="Tracking LTFU by FollowUp Type", 
+          subtitle="From March 2015 - July 2017",
+         caption="Source: PLR", 
+         y="# unique Patients",
+         x="")+
+    scale_x_discrete(label = c("Phone Calls","Home Visits"))+
+    #    scale_fill_brewer("Blues")+
+  theme(axis.text.x = element_text(size = 13),
+        axis.text.y = element_text(size = 14), 
+        panel.background = element_blank(),
+        axis.line=element_line(),
+        axis.title.x = element_text(size = 14),
+      plot.title = element_text(size = 16)) 
+
+
+```
+
+
+
+## LTFU Tracking Trend by Follow Up Type
 
 ```{r}
 
 trend_by_reason_ltfu <- plr %>%  filter(TypeRelance_clean == "LTFU") %>%
-    group_by(TypeRelance_clean,SNU1,Partner,year_suivi,month = month(datesuivieffectue_clean,label= T)) %>% 
+    group_by(typesuivi,date = floor_date(datesuivieffectue_clean, "month")) %>% 
     summarise(n = n_distinct(id_patient)) 
    
 
-ggplot(trend_by_reason_ltfu,aes(month,n))+
-    geom_bar(stat = "identity")+
-    facet_grid(~year_suivi)+
-    labs(title="Monthly Tracking", 
-         subtitle="PLR Monthly Tracking", 
+ggplot(trend_by_reason_ltfu,aes(date,n))+
+    geom_line(stat = "identity",colour="#0072B2",size =1.5)+
+    facet_grid(~typesuivi)+
+    labs(title="LTFU Tracking by Follow Up Type", 
+         subtitle="# patient tracked by FollowupType from March 2015 - July 2017",
          caption="Source: PLR", 
-         y="Nb Patients") +  # title and caption
-    theme(axis.text.x = element_text(angle = 60, vjust=0.5),  # rotate x axis text
-          panel.grid.minor = element_blank())  # turn off minor grid
+         y="# unique Patients") +  # title and caption
+    scale_fill_brewer("Blues")+
+  theme(axis.text.x = element_text(size = 9),axis.text.y = element_text(size = 14), 
+             panel.background = element_blank(), axis.line=element_line(),axis.title.x = element_text(size = 14),
+                 plot.title = element_text(size = 16)) 
 ```
 
-## LTFU Cascade
+
+##  LTFU Monthly Tracking  by Sexe
+
 ```{r}
-var_outcome <- c("PatientDecede","PatientRefuse","PatientRetourneALaClinique","PatientSuiviAilleurs","PatientIntrouvable","no_outcome")
+trend_by_reason_sexe <- plr %>%  filter(TypeRelance_clean == "LTFU") %>%
+    group_by(sexe,date = floor_date(datesuivieffectue_clean, "month")) %>% 
+    summarise(n = n_distinct(id_patient)) 
+   
+
+ggplot(trend_by_reason_sexe,aes(date,n))+
+    geom_bar(stat = "identity",aes(y=n,fill=sexe),size =1.5)+
+    labs(title="LTFU Monthy Tracking by sexe",
+         subtitle="# patient tracked by sexe from March 2015 - July 2017",
+         caption="Source: PLR", 
+         y="# unique Patients") +  
+ #   scale_fill_brewer("Blues")+
+  theme(axis.text.x = element_text(size = 13),axis.text.y = element_text(size = 14), 
+             panel.background = element_blank(), axis.line=element_line(),axis.title.x = element_text(size = 14),
+                 plot.title = element_text(size = 16)) 
+
+```
+
+
+## Cumulative trend
+```{r}
+
+trend_by_reason_cum <- LTFU %>% group_by(date = floor_date(datesuivieffectue_clean, "month")) %>% 
+    summarise(n = n_distinct(id_patient),
+              known_outcome = sum(outcome_status),
+              BackInClinic = sum(PatientRetourneALaClinique))
+
+trend_by_reason_cum$cum_n <- cumsum(trend_by_reason_cum$n)
+trend_by_reason_cum$cum_ko <- cumsum(trend_by_reason_cum$known_outcome)
+trend_by_reason_cum$cum_bc <- cumsum(trend_by_reason_cum$BackInClinic)
+
+# labels and breaks for X axis text
+lbls <- paste0(month.abb[month(trend_by_reason$date)], " ", lubridate::year(trend_by_reason$date))
+brks <- trend_by_reason$date
+
+# Overall trend
+ggplot(trend_by_reason_cum,aes(date,cum_n))+
+    geom_line(aes(y=cum_n), colour = "#0072B2",size = 1.5)+
+    geom_line(aes(y=cum_ko), colour = "#999999",size = 1.5)+
+   geom_line(aes(y=cum_bc), colour = "#D55E00",size = 1.5)+
+annotate("text", x=date("2017-07-01"), y=max(trend_by_reason_cum$cum_n), label="# Pat. Tracked", hjust=1.2,vjust=1,size = 4,  colour="black")+
+    annotate("text", x=date("2017-07-01"), y=max(trend_by_reason_cum$cum_ko), label="# Pat. with Known Outcome", hjust=1,vjust=-1.2,size = 4,  colour="black")+
+    annotate("text", x=date("2017-07-01"), y=max(trend_by_reason_cum$cum_bc), label="# Pat. Back in Clinic", hjust=1,vjust=-1.2,size = 4,  colour="black")+
+    labs(title="LTFU Cumulative Tracking Trend",
+         subtitle="Cumulative number from March 2015 - July 2017",
+         caption="Source: PLR", 
+         y="# unique Patients") + 
+  #scale_x_date(labels = lbls,  breaks = brks) +  
+  theme(axis.text.x = element_text(size = 13),axis.text.y = element_text(size = 14), 
+             panel.background = element_blank(), axis.line=element_line(),axis.title.x = element_text(size = 14),
+                 plot.title = element_text(size = 16))  
+
+
+```
+
+## LTFU Tracking Results
+
+* As in PLR dashboard we have looked at LTFU Tracking Performance
+* **Tracking Performance** = _# Pat. Returned to clinic_/ _# Patient contacted_
+* We have introduced the known outcomes variable
+* Number of Pat. with KnownOutcomes includes :
+    + Patient  is Dead
+    + Patient is Transfered
+    + Patient refuse treatment
+    + Patient came back to clinic
+
+##  LTFU Tracking Performance Trend 
+```{r warning=F}
+
+trend_by_reason_ltfu_rate <- plr %>%  filter(TypeRelance_clean == "LTFU") %>%
+    group_by(date = floor_date(datesuivieffectue_clean, "month")) %>% 
+    summarise(n = n_distinct(id_patient),
+              bc = sum(PatientRetourneALaClinique,na.rm = T),
+              return_rate = round(bc/n,2)) 
+   
+
+p <- ggplot(trend_by_reason_ltfu_rate,aes(x=date))+
+    geom_bar(stat="identity",aes(y=n),colour="#999999",fill="#CCCCCC",width = 29)+
+    geom_line(stat = "identity", aes(y=return_rate*3500),colour="#0072B2",size =1.5)+
+    scale_y_continuous(sec.axis = sec_axis(~./3500*100),limits = c(0,3500))+
+    labs(title="LTFU Monthly Tracking performance",
+         subtitle = "Tracking from january 2015 - July 2017",
+         caption="Source: PLR", 
+         y="# unique Patients")+
+     theme(axis.text.x = element_text(size = 13),
+           axis.text.y = element_text(size = 14),    
+           panel.background = element_blank(),
+           axis.line=element_line(),
+           axis.title.x = element_text(size = 14),
+           plot.title = element_text(size = 16))  
+
+p
+
+```
+
+##  LTFU Tracking Performance by Partner
+```{r}
+
+trend_by_reason_ltfu_rate_partner <- plr %>%  filter(TypeRelance_clean == "LTFU") %>%
+    group_by(Partner) %>% 
+    summarise(n = n_distinct(id_patient),
+              bc = sum(PatientRetourneALaClinique,na.rm = T),
+              return_rate = round(bc/n,3)*100) 
+   
+
+ggplot(trend_by_reason_ltfu_rate_partner,aes(x=reorder(Partner,return_rate),y=return_rate,fill=reorder(Partner,return_rate))) + 
+        geom_bar(stat = "Identity")+
+        geom_text(aes(x=reorder(Partner,return_rate),y=return_rate, label = paste(comma(return_rate),"%")), colour="blue",hjust =-0.1,size = 5)+
+        coord_flip() +
+        labs(title="LTFU Tracking Performance by Partner",
+             subtitle = "From March 2015 - July 2017",
+         caption="Source: PLR", 
+         x="",
+         y=" % of Patients returned to clinic") +  
+    #    scale_x_discrete(labels = lbls )+
+     scale_y_continuous(breaks = seq(0,100,20),limits =c(0,100),labels =comma)+
+    scale_fill_brewer()+
+        guides(fill=FALSE)+
+        theme(axis.text.x = element_text(size = 13),
+              axis.text.y = element_text(size = 14), 
+              panel.background = element_blank(), 
+              axis.line=element_line(),
+              axis.title.x = element_text(size = 14),
+                        plot.title = element_text(size = 16))  
+
+```
+
+##  LTFU Tracking Performance by Partner
+```{r}
+start <- date("2016-10-01")
+end <- date("2017-07-31")
+trend_by_reason_ltfu_rate_partner_fy17 <- plr %>% 
+    filter(datesuivieffectue_clean >= start, datesuivieffectue_clean <= end) %>% 
+    filter(TypeRelance_clean == "LTFU") %>% 
+    group_by(Partner) %>% 
+    summarise(n = n_distinct(id_patient),
+              bc = sum(PatientRetourneALaClinique,na.rm = T),
+              return_rate = round(bc/n,2)*100) 
+   
+
+ggplot(trend_by_reason_ltfu_rate_partner_fy17,aes(x=reorder(Partner,return_rate),y=return_rate,fill=reorder(Partner,return_rate))) + 
+        geom_bar(stat = "Identity")+
+        geom_text(aes(x=reorder(Partner,return_rate),y=return_rate, label = paste(comma(return_rate),"%")), colour="blue",hjust =-0.1,size = 5)+
+        coord_flip() +
+        labs(title="LTFU Tracking Performance by Partner",
+             subtitle = "From Oct 2016 - July 2017",
+         caption="Source: PLR", 
+         x="",
+         y=" % of Patient Returned to Clinic") +  
+    #    scale_x_discrete(labels = lbls )+
+     scale_y_continuous(breaks = seq(0,100,20),limits =c(0,100),labels =comma)+
+    scale_fill_brewer()+
+        guides(fill=FALSE)+
+        theme(axis.text.x = element_text(size = 13),axis.text.y = element_text(size = 14), 
+                      panel.background = element_blank(), axis.line=element_line(),axis.title.x = element_text(size = 14),
+                        plot.title = element_text(size = 16))  
+
+
+```
+
+
+## LTFU Tracking Perfomance Cascade
+```{r}
+var_outcome <- c("PatientDecede","PatientRefuse","PatientRetourneALaClinique","PatientSuiviAilleurs","PatientIntrouvable","no_outcome","PatientActif")
 
 LTFU_2 <- select(LTFU,id_patient,sexe,typesuivi,age_group,age_suivi,datesuivieffectue_clean,year_suivi,
                  monthyr_suvi,Institution,Partner,SNU1,SNU2,one_of(var_outcome))
 
 
-LTFU_2 <- gather(LTFU_2,"patient_outcome","var",13:18) %>% filter(var == 1)
+LTFU_2 <- gather(LTFU_2,"patient_outcome","var",13:19) %>% filter(var == 1)
 
 
 ## PLR Cascade From janv 2015 - to July 2017
@@ -197,7 +575,8 @@ names(tab_cascade) <- c("outcomes","nb")
 
 f_cascade <- function (tab_cascade) {
     ko <- filter(tab_cascade, outcomes %in% c("PatientDecede","PatientRefuse","PatientRetourneALaClinique","PatientSuiviAilleurs"))
-    tot_contacted <- sum(tab_cascade$nb)
+    to <- filter(tab_cascade, outcomes %in% c("PatientDecede","PatientRefuse","PatientRetourneALaClinique","PatientSuiviAilleurs","PatientIntrouvable","no_outcome"))
+    tot_contacted <- sum(to$nb)
     
     dt <- data.frame(c("Tot. Contacted","Known Outcomes"),c(tot_contacted,sum(ko$nb)))
     names(dt) <- c("outcomes","nb")
@@ -218,65 +597,353 @@ tab_cascade_appel <- filter(tab_cascade_suivi,typesuivi =="Appel") %>% select(ou
 tab_cascade_visite <- f_cascade(tab_cascade_visite)
 tab_cascade_appel <- f_cascade(tab_cascade_appel)
 
-
 ```
-
 
 ```{r}
 # percentage
 tab_cascade %>% 
-    filter(outcomes %in% c("Tot. Contacted","Known Outcomes","PatientRetourneALaClinique")) %>%
-    ggplot() +
-    geom_bar(stat= "identity" ,aes(reorder(outcomes,-percent),percent) )+ 
-    geom_text(aes(x=outcomes,y=percent,label=paste(nb,"(",percent,"%",")")), vjust=1.5, colour="white") +
-    labs(title="PLR Cascade From janv 2015 - to July 2017", 
+    filter(outcomes %in% c("Tot. Contacted","Known Outcomes","PatientRetourneALaClinique","PatientActif")) %>%
+    ggplot(aes(x=reorder(outcomes,-percent),y=percent)) +
+    geom_bar(stat= "identity" ,width = 0.5,fill="Blue" )+ 
+      geom_text(aes(x=outcomes,y=percent,label=nb), vjust=1.5, colour="white",size = 4) +
+    geom_text(aes(x=outcomes,y=percent,label=paste("(",percent,"%",")")), vjust=3.5, colour="white",size = 4) +
+    labs(title="LTFU PLR Cascade From janv 2015 - to July 2017", 
          caption="Source: PLR", 
          x= "outcomes",
-         y="Nb Patients") +  
-    theme(axis.text.x = element_text(angle = 30, vjust=0.5),  # rotate x axis text
-          panel.grid.minor = element_blank())  # turn off minor grid
+         y="") + 
+   scale_fill_manual(values=c("#CC6666", "#9999CC", "#66CC99","#003F33"))+
+  theme(axis.text.x = element_text(size = 10,angle = 30, vjust=0.5),axis.text.y = element_text(size = 12), 
+             panel.background = element_blank(), axis.line=element_line(),axis.title.x = element_text(size = 14),
+                 plot.title = element_text(size = 14))  
+
+```
+
+## LTFU Flowchart of outcomes
+```{r}
+tab_cascade_spread_p <- spread(tab_cascade[,c(1,3)],outcomes,percent)
+tab_cascade_spread_n <- spread(tab_cascade[,c(1,2)],outcomes,nb)
+
+tab_cascade_spread <- spread(tab_cascade[,c(1,2)],outcomes,nb)
+tab_cascade_spread$no_outcome_total  <-tab_cascade_spread$no_outcome+tab_cascade_spread$PatientIntrouvable
+
+tab_cascade_spread$no_outcome_percent <-tab_cascade_spread$no_outcome_total /tab_cascade_spread$`Tot. Contacted`
+
+tab_cascade_spread$KnownOutcomes_percent <- tab_cascade_spread$`Known Outcomes`/tab_cascade_spread$`Tot. Contacted`
+tab_cascade_spread$BackInClinic_percent <- tab_cascade_spread$PatientRetourneALaClinique/tab_cascade_spread$`Known Outcomes`
+
+tab_cascade_spread$RefuseTx_percent <- tab_cascade_spread$PatientRefuse/tab_cascade_spread$`Known Outcomes`
+tab_cascade_spread$SilentTransfer_percent <- tab_cascade_spread$PatientSuiviAilleurs/tab_cascade_spread$`Known Outcomes`
+tab_cascade_spread$Dead_percent <- tab_cascade_spread$PatientDecede/tab_cascade_spread$`Known Outcomes`
+tab_cascade_spread$active_percent <- tab_cascade_spread$PatientActif/tab_cascade_spread$PatientRetourneALaClinique
+
+
+
+```
+
+```{r}
+
+    par(mar = c(1, 1, 1, 1))
+    openplotmat(main ="LTFU Flowchart of outcomes Janv 2015- July 2017")
+    elpos <- coordinates (c(1, 2, 4, 2))
+    fromto <- matrix(ncol = 2,byrow = T,data = c(1,2,1,3,3,4,3,5,3,6,3,7,7,9))
+    nr <- nrow(fromto)
+    arrpos <- matrix(ncol = 2, nrow = nr)
+    for(i in 1:nr)
+        arrpos[i,] <- straightarrow(to = elpos[fromto[i,2],],
+                                    from = elpos[fromto[i,1],],
+                                    lwd = 2,arr.pos = 0.6,
+                                    arr.length = 0.5)
+    textround(elpos[1,], 0.15,0.06,
+    lab = c("Total Contacted",tab_cascade_spread$`Tot. Contacted`), cex = 0.8)
+    textround(elpos[2,], 0.15,0.07,
+    lab = c("No Outcomes found",paste(tab_cascade_spread$no_outcome_total,
+                                 "(",round(tab_cascade_spread$no_outcome_percent*100,1),"%)")), cex = 0.8)
+   
+    textround(elpos[3,], 0.15,0.07, 
+    lab = c("Outcomes found",paste(tab_cascade_spread_n$`Known Outcomes`,
+                                   "(",round(tab_cascade_spread$KnownOutcomes_percent*100,1),"%)")),  cex = 0.8)
+    
+    textround(elpos[4,], 0.05,0.07,
+    lab = c("Dead",paste(tab_cascade_spread_n$PatientDecede,
+                        "(",round(tab_cascade_spread$Dead_percent*100,1),"%)")),  cex = 0.8)
+    
+    textround(elpos[5,], 0.05,0.07, 
+    lab = c("Silent transfer",paste(tab_cascade_spread_n$PatientSuiviAilleurs,
+                          "(",round(tab_cascade_spread$SilentTransfer_percent*100,1),"%)")), cex = 0.8)
+    
+    textround(elpos[6,], 0.05,0.07, 
+    lab = c("Refuse Treatment",paste(tab_cascade_spread_n$PatientRefuse,
+                            "(",round(tab_cascade_spread$RefuseTx_percent*100,1),"%)")),  cex = 0.8)
+    
+    textround(elpos[7,], 0.05,0.07,
+    lab = c("Back in clinic",paste(tab_cascade_spread_n$PatientRetourneALaClinique,
+                                   "(",round(tab_cascade_spread$BackInClinic_percent*100,1),"%)")),cex = 0.8)
+    
+    textround(elpos[9,], 0.05,0.07,
+    lab = c("active on treatment",paste(tab_cascade_spread_n$PatientActif,
+                                        "(",round(tab_cascade_spread$active_percent*100,1),"%)")),  cex = 0.8)
+
 
 ```
 
 
-## Cascade Visite
+##LTFU Partner Outcome Cascade 
+
 ```{r}
+partner_table <- table(LTFU_2$Partner,LTFU_2$patient_outcome)
+partner_table <- as_data_frame(partner_table)
+names(partner_table) <- c("partner","outcomes","n")
+
+partner_table <- spread(partner_table,outcomes,n)
+partner_table$total_contacte <- partner_table$no_outcome+
+                                partner_table$PatientIntrouvable+ 
+                                partner_table$PatientDecede+
+                                partner_table$PatientRefuse+
+                                partner_table$PatientSuiviAilleurs+
+                                partner_table$PatientRetourneALaClinique
+
+partner_table$patient_knownoutcomes <- partner_table$PatientDecede+
+                                partner_table$PatientRefuse+
+                                partner_table$PatientSuiviAilleurs+
+                                partner_table$PatientRetourneALaClinique
+
+partner_table$knownoutcomes_percent <- round(partner_table$patient_knownoutcomes/partner_table$total_contacte,2)
+
+partner_table$total_no_outocome <- partner_table$no_outcome + partner_table$PatientIntrouvable
+partner_table$ReturnBacktoClinic <- round(partner_table$PatientRetourneALaClinique/partner_table$patient_knownoutcomes,2)
+
+partner_table$PatientActif_Percent <- round(partner_table$PatientActif/partner_table$PatientRetourneALaClinique,2)
+
+partner_table_g <- gather(partner_table,"outcomes","n",2:14)
+
+p <- partner_table_g %>% 
+    filter(outcomes %in% c("knownoutcomes_percent","ReturnBacktoClinic","PatientActif_Percent"))
+
+spread_p <- spread(p,outcomes,n)
+
+spread_p$ReturnBacktoClinic_scale <- spread_p$knownoutcomes_percent*spread_p$ReturnBacktoClinic
+spread_p$PatientActif_Percent_sclae <- spread_p$knownoutcomes_percent*spread_p$ReturnBacktoClinic*spread_p$PatientActif_Percent
+
+p2 <- spread_p %>% 
+    select(partner,knownoutcomes_percent,ReturnBacktoClinic_scale,PatientActif_Percent_sclae) %>%
+    gather("outcomes","n",2:4)
+
+p2_label <- spread_p %>% 
+    select(partner,knownoutcomes_percent,ReturnBacktoClinic,PatientActif_Percent)%>%
+    gather("outcomes","label",2:4)
+
+p <- cbind(p2,label =p2_label$label)
 
 
-tab_cascade_visite %>% 
-    filter(outcomes %in% c("Tot. Contacted","Known Outcomes","PatientRetourneALaClinique")) %>%
-    ggplot() +
-    geom_bar(stat= "identity" ,aes(reorder(outcomes,-percent),percent) )+ 
-    geom_text(aes(x=outcomes,y=percent,label=paste(nb,"(",percent,"%",")")), vjust=1.5, colour="white") +
-    labs(title="PLR Cascade From janv 2015 - to July 2017", 
+ggplot(p,aes(x=partner,y=n*100,fill=reorder(outcomes,-n)),group=position)+
+    geom_bar(stat="identity", position = "dodge")+
+    geom_text(aes(label = paste(comma(label*100),"%")), colour="blue", position = position_dodge(.9),vjust=-0.2,size = 3.5)+
+        labs(title="LTFU Partner Outcome Cascade",
+             subtitle = "From March 2015 - July 2017",
          caption="Source: PLR", 
-         x= "outcomes",
-         y="Nb Patients") +  
-    theme(axis.text.x = element_text(angle = 30, vjust=0.5),  # rotate x axis text
-          panel.grid.minor = element_blank())  # turn off minor grid
-````
+         fill="",
+         x="",
+         y="% of Patients")+
+       ylim(0,100)+
+    scale_fill_discrete(labels = c("% of Pat. with KnownOutComes","% who came back to clinic","% active "))+
+        theme(axis.text.x = element_text(size = 12),
+              axis.text.y = element_text(size = 12), 
+        panel.background = element_blank(), 
+        axis.line=element_line(),
+        axis.title.x = element_text(size = 14), 
+        plot.title = element_text(size = 16),
+        legend.position = "bottom")  
 
 
-## Cascade Appel
+```
+
+
+## LTFU Partner Outcome Cascade
 ```{r}
+start <- date("2016-10-01")
+end <- date("2017-07-31")
 
-tab_cascade_appel %>% 
-    filter(outcomes %in% c("Tot. Contacted","Known Outcomes","PatientRetourneALaClinique")) %>%
-    ggplot() +
-    geom_bar(stat= "identity" ,aes(reorder(outcomes,-percent),percent) )+ 
-    geom_text(aes(x=outcomes,y=percent,label=paste(nb,"(",percent,"%",")")), vjust=1.5, colour="white") +
-    labs(title="PLR Cascade From janv 2015 - to July 2017", 
+LTFU_2_oct <- filter(LTFU_2,datesuivieffectue_clean >= start, datesuivieffectue_clean < end)
+
+partner_table <- table(LTFU_2_oct$Partner,LTFU_2_oct$patient_outcome)
+partner_table <- as_data_frame(partner_table)
+names(partner_table) <- c("partner","outcomes","n")
+
+partner_table <- spread(partner_table,outcomes,n)
+partner_table$total_contacte <- partner_table$no_outcome+
+                                partner_table$PatientIntrouvable+ 
+                                partner_table$PatientDecede+
+                                partner_table$PatientRefuse+
+                                partner_table$PatientSuiviAilleurs+
+                                partner_table$PatientRetourneALaClinique
+
+partner_table$patient_knownoutcomes <- partner_table$PatientDecede+
+                                partner_table$PatientRefuse+
+                                partner_table$PatientSuiviAilleurs+
+                                partner_table$PatientRetourneALaClinique
+
+partner_table$knownoutcomes_percent <- round(partner_table$patient_knownoutcomes/partner_table$total_contacte,2)
+
+partner_table$total_no_outocome <- partner_table$no_outcome + partner_table$PatientIntrouvable
+partner_table$ReturnBacktoClinic <- round(partner_table$PatientRetourneALaClinique/partner_table$patient_knownoutcomes,2)
+
+partner_table$PatientActif_Percent <- round(partner_table$PatientActif/partner_table$PatientRetourneALaClinique,2)
+
+partner_table_g <- gather(partner_table,"outcomes","n",2:14)
+
+p <- partner_table_g %>% 
+    filter(outcomes %in% c("knownoutcomes_percent","ReturnBacktoClinic","PatientActif_Percent"))
+
+spread_p <- spread(p,outcomes,n)
+
+spread_p$ReturnBacktoClinic_scale <- spread_p$knownoutcomes_percent*spread_p$ReturnBacktoClinic
+spread_p$PatientActif_Percent_sclae <- spread_p$knownoutcomes_percent*spread_p$ReturnBacktoClinic*spread_p$PatientActif_Percent
+
+p2 <- spread_p %>% 
+    select(partner,knownoutcomes_percent,ReturnBacktoClinic_scale,PatientActif_Percent_sclae) %>%
+    gather("outcomes","n",2:4)
+
+p2_label <- spread_p %>% 
+    select(partner,knownoutcomes_percent,ReturnBacktoClinic,PatientActif_Percent)%>%
+    gather("outcomes","label",2:4)
+
+p <- cbind(p2,label =p2_label$label*100)
+
+
+ggplot(p,aes(x=partner,y=n*100,fill=reorder(outcomes,-n)),group=position)+
+    geom_bar(stat="identity", position = "dodge")+
+    geom_text(aes(label = paste(comma(label),"%")), colour="blue", position = position_dodge(.9),vjust=-0.2,size = 3.5)+
+        labs(title="LTFU Partner Outcome Cascade ",
+             subtitle="From Oct 2016 - July 2017",
          caption="Source: PLR", 
-         x= "outcomes",
-         y="Nb Patients") +  
-    theme(axis.text.x = element_text(angle = 30, vjust=0.5),  # rotate x axis text
-          panel.grid.minor = element_blank())  # turn off minor grid
-````
+         x="",
+         y="% Patients",
+         fill="")+
+       ylim(0,100)+
+     scale_fill_discrete(labels = c("% of Pat. with KnownOutComes","% who came back to clinic","% active "))+
+        theme(axis.text.x = element_text(size = 12),axis.text.y = element_text(size = 12), 
+        panel.background = element_blank(), axis.line=element_line(),axis.title.x = element_text(size = 14), 
+        plot.title = element_text(size = 16),
+        legend.position = "bottom")  
+
+```
 
 
+## Overall Findings 
+```{r}
+
+findings <- c("FraisTransportNonDisponible","EtatTropMalade","Oubli",
+              "RechercheSoinsAlternatifs","PeurDEtreVuDansUnSiteVIH","ServicesInsatisfaisant",
+              "Voyage","Migration","Stigmatisation","OccupationOuManquedeTemps","DecesDansLaFamille",
+              "BesoinDeTransfert")
+
+tb_findings <- plr %>% filter(TypeRelance_clean == "LTFU") %>% 
+                    select(id_patient,typesuivi,datesuivieffectue_clean,sexe,
+                           age_group,age_suivi,year_suivi,monthyr_suvi,Institution,
+                           SNU1,SNU2,Partner, one_of(findings))
+
+t <- tb_findings %>%  select(one_of(findings)) %>%  summarise_each(funs(sum(.,na.rm=T)))
+t <- gather(t,"findings","n",1:12)
+
+t$percent <- round(t$n/sum(t$n),2)
+
+```
+
+```{r}
+ggplot(t,aes(x=reorder(findings,percent),y=percent)) +
+    geom_bar(stat = "identity",fill="#0072B2")+
+        geom_text(aes(x=reorder(findings,percent),y=percent, label =paste0(sprintf("%.0f",percent*100),"%")), colour="#999999",hjust =-0.1,size = 5)+
+   #   geom_text(aes(x=reorder(TypeRelance_clean,n),y=n, label = comma(n)), colour="blue",hjust =-0.1,size = 5)+
+    coord_flip()+
+    scale_y_continuous(limits=c(0,0.3) ,labels = percent_format())+
+    labs(title="LTFU Findings", 
+         subtitle="From March 2015 - July 2017",
+         caption="Source: PLR",
+         x="",
+         y="% of Tracking Results") +  
+        scale_fill_brewer()+
+  theme(axis.text.x = element_text(size = 13),axis.text.y = element_text(size = 14), 
+             panel.background = element_blank(), axis.line=element_line(),axis.title.x = element_text(size = 14),
+                 plot.title = element_text(size = 16))  
+
+```
+
+## Overall Findings by Sexe (Male)
+
+```{r}
+s <- tb_findings %>%  select(sexe,one_of(findings)) %>% group_by(sexe) %>%  summarise_each(funs(sum(.,na.rm=T)))
+s <- gather(s,"findings","n",2:13)
+
+
+s_male <- filter(s,sexe =='M')
+
+s_male$percent <- round(s_male$n/sum(s_male$n),2)
+
+ggplot(s_male,aes(x=reorder(findings,percent),y=percent)) +
+    geom_bar(stat = "identity",fill="#0072B2")+
+        geom_text(aes(x=reorder(findings,percent),y=percent, label =paste0(sprintf("%.0f",percent*100),"%")), colour="#999999",hjust =-0.1,size = 5)+
+   #   geom_text(aes(x=reorder(TypeRelance_clean,n),y=n, label = comma(n)), colour="blue",hjust =-0.1,size = 5)+
+    coord_flip()+
+    scale_y_continuous(limits=c(0,0.3) ,labels = percent_format())+
+    labs(title="LTFU Findings for Men", 
+         subtitle = "From March 2015-July 2017",
+         caption="Source: PLR",
+         x="",
+         y="% of Tracking Results") +  
+        scale_fill_brewer()+
+  theme(axis.text.x = element_text(size = 13),axis.text.y = element_text(size = 14), 
+             panel.background = element_blank(), axis.line=element_line(),axis.title.x = element_text(size = 14),
+                 plot.title = element_text(size = 16))  
+
+
+```
+
+## Overall Findings by Sexe (Female)
 
 ```{r}
 
+s_female <- filter(s,sexe =='F')
 
-````
+s_female$percent <- round(s_female$n/sum(s_female$n),2)
+
+ggplot(s_female,aes(x=reorder(findings,percent),y=percent)) +
+    geom_bar(stat = "identity",fill="#0072B2")+
+        geom_text(aes(x=reorder(findings,percent),y=percent, label =paste0(sprintf("%.0f",percent*100),"%")), colour="#999999",hjust =-0.1,size = 5)+
+   #   geom_text(aes(x=reorder(TypeRelance_clean,n),y=n, label = comma(n)), colour="blue",hjust =-0.1,size = 5)+
+    coord_flip()+
+    scale_y_continuous(limits=c(0,0.3) ,labels = percent_format())+
+    labs(title="LTFU Findings for Women",
+         subtitle = "From March 2015-July 2017",
+         caption="Source: PLR",
+         x="",
+         y="% Tracking Results") +  
+        scale_fill_brewer()+
+  theme(axis.text.x = element_text(size = 13),axis.text.y = element_text(size = 14), 
+             panel.background = element_blank(), axis.line=element_line(),axis.title.x = element_text(size = 14),
+                 plot.title = element_text(size = 16))  
+```
+
+## Conclusion
+
+* Our overall tracking activities has increased the past 3 years
+* However there is a competion between the different activities 
+* LTFU activities has decreased in FY17 but we have an increase of activities in Community Drug Distribution.
+* The LTFU tracking performance has decreased  in FY17.
+* For FY17 all partners are below **60%**  tracking performance
+* For the past 3 year  **44%** of the Patient Contacted Came back to the clinic.
+* We dont know the outcomes for **40%** of our LTFU and **10%**  of those found refuse to came back.
+
+
+
+## Next Steps
+* For now we have only looked at basic resutls for LTFU
+* We need to go deeper in LTFU analysis and cascade.
+* Improve and better define key performance indicator for PLR
+* We need to analyze data  for other activities 
+    + Missed Appointment
+    + Community Drug Distribution
+    + Geo-Location
+* Intregrate findings with EMR data
+* Create  static and interactive maps
+* Find a better way to show the impact of LTFU tracking on TX_CURR
 

@@ -199,6 +199,20 @@ LTFU$outcome_status <-as.integer(LTFU$PatientDecede |
 
 LTFU$no_outcome <- ifelse(LTFU$outcome_check == 0,1,0)
 
+### active patient
+
+report_date <- date(max(LTFU$datesuivieffectue_clean))
+LTFU$diff_NexVisit_LastVisitCHT <-LTFU$NextVisitDate - LTFU$lastserviceeventdatecht
+LTFU$diff_reportdate_NexVisit <- report_date - LTFU$NextVisitDate
+
+LTFU <- mutate(LTFU,PatientActif = ifelse(PatientRetourneALaClinique == 1,
+                                          ifelse(NextVisitDate >= report_date,1,
+                                                        ifelse((NextVisitDate < report_date) & diff_reportdate_NexVisit<=90,1,0)
+                                                 ),0
+                                          )
+               )
+actif <- filter(LTFU,PatientActif == 1)
+
 
 
 
@@ -338,7 +352,7 @@ findings <- c("FraisTransportNonDisponible","EtatTropMalade","Oubli",
 
 tb_findings <- plr %>% filter(TypeRelance_clean == "LTFU") %>% 
                     select(id_patient,typesuivi,datesuivieffectue_clean,sexe,
-                           age_group,age_suivi,year_suivi,monthyr,Institution,
+                           age_group,age_suivi,year_suivi,monthyr_suvi,Institution,
                            SNU1,SNU2,Partner, one_of(findings))
 
 ## number of records with no findings ??????
@@ -381,13 +395,14 @@ ggplot(t_by_partner) +
     theme(axis.text.x = element_text(angle=90, vjust=0.4))
 ### categorical model
 
-var_outcome <- c("PatientDecede","PatientRefuse","PatientRetourneALaClinique","PatientSuiviAilleurs","PatientIntrouvable","no_outcome")
+var_outcome <- c("PatientDecede","PatientRefuse","PatientRetourneALaClinique","PatientSuiviAilleurs","PatientIntrouvable","no_outcome","PatientActif")
 
 LTFU_2 <- select(LTFU,id_patient,sexe,typesuivi,age_group,age_suivi,datesuivieffectue_clean,year_suivi,
                  monthyr_suvi,Institution,Partner,SNU1,SNU2,one_of(var_outcome))
 
 
-LTFU_2 <- gather(LTFU_2,"patient_outcome","var",13:18) %>% filter(var == 1)
+LTFU_2 <- gather(LTFU_2,"patient_outcome","var",13:19) %>% filter(var == 1)
+
 
 
 ## PLR Cascade From janv 2015 - to July 2017
@@ -412,7 +427,7 @@ tab_cascade <- f_cascade(tab_cascade)
 
 # percentage
 tab_cascade %>% 
-    filter(outcomes %in% c("Tot. Contacted","Known Outcomes","PatientRetourneALaClinique")) %>%
+    filter(outcomes %in% c("Tot. Contacted","Known Outcomes","PatientRetourneALaClinique","PatientActif")) %>%
     ggplot() +
     geom_bar(stat= "identity" ,aes(reorder(outcomes,-percent),percent) )+ 
     geom_text(aes(x=outcomes,y=percent,label=paste(nb,"(",percent,"%",")")), vjust=1.5, colour="white") +
@@ -438,11 +453,11 @@ tab_cascade_appel <- f_cascade(tab_cascade_appel)
 
 # percentage
 tab_cascade_visite %>% 
-    filter(outcomes %in% c("Tot. Contacted","Known Outcomes","PatientRetourneALaClinique")) %>%
+    filter(outcomes %in% c("Tot. Contacted","Known Outcomes","PatientRetourneALaClinique","PatientActif")) %>%
     ggplot() +
     geom_bar(stat= "identity" ,aes(reorder(outcomes,-percent),percent) )+ 
     geom_text(aes(x=outcomes,y=percent,label=paste(nb,"(",percent,"%",")")), vjust=1.5, colour="white") +
-    labs(title="PLR Cascade From janv 2015 - to July 2017", 
+    labs(title="LTFU PLR Cascade Viste From janv 2015 - to July 2017", 
          caption="Source: PLR", 
          x= "outcomes",
          y="Nb Patients") +  
@@ -452,19 +467,16 @@ tab_cascade_visite %>%
 
 # percentage
 tab_cascade_appel %>% 
-    filter(outcomes %in% c("Tot. Contacted","Known Outcomes","PatientRetourneALaClinique")) %>%
+    filter(outcomes %in% c("Tot. Contacted","Known Outcomes","PatientRetourneALaClinique","PatientActif")) %>%
     ggplot() +
     geom_bar(stat= "identity" ,aes(reorder(outcomes,-percent),percent) )+ 
     geom_text(aes(x=outcomes,y=percent,label=paste(nb,"(",percent,"%",")")), vjust=1.5, colour="white") +
-    labs(title="PLR Cascade From janv 2015 - to July 2017", 
+    labs(title="LTFU PLR Cascade Appel From janv 2015 - to July 2017", 
          caption="Source: PLR", 
          x= "outcomes",
          y="Nb Patients") +  
     theme(axis.text.x = element_text(angle = 30, vjust=0.5),  # rotate x axis text
           panel.grid.minor = element_blank())  # turn off minor grid
-
-
-
 
 
 
@@ -476,26 +488,49 @@ xtabs_partner <- xtabs(~Partner+patient_outcome,LTFU_2)
 
 xtabs_snu1 <- xtabs(~SNU1+patient_outcome,LTFU_2)
 
+### LTFU PLR Cascade by partner
+tab_partner <- table(LTFU_2$Partner, LTFU_2$patient_outcome)
+tab_cascade_partner<- as_data_frame(tab_partner)
+names(tab_cascade_partner) <- c("Partner","outcomes","nb")
+
+
+tab_cascade_partner %>% 
+    filter(outcomes %in% c("Tot. Contacted","Known Outcomes","PatientRetourneALaClinique","PatientActif")) %>%
+    ggplot() +
+    geom_bar(stat= "identity" ,aes(reorder(outcomes,-percent),percent) )+ 
+    geom_text(aes(x=outcomes,y=percent,label=paste(nb,"(",percent,"%",")")), vjust=1.5, colour="white") +
+    labs(title="PLR Cascade From janv 2015 - to July 2017", 
+         caption="Source: PLR", 
+         x= "outcomes",
+         y="Nb Patients") +  
+    theme(axis.text.x = element_text(angle = 30, vjust=0.5),  # rotate x axis text
+          panel.grid.minor = element_blank())  # turn off minor grid
+
+
 ### active patient
 
+start <- date("2015-10-01")
+end <- date("2017-07-31")
 active_LTFU <- LTFU %>% 
-                filter(PatientRetourneALaClinique ==1) %>% 
+                filter(PatientRetourneALaClinique ==1,  datesuivieffectue_clean >= start, datesuivieffectue_clean <= end) %>% 
                 select(id_patient,typesuivi,datesuivieffectue_clean,PatientRetourneALaClinique,
                       DateRetourALaClinique,lastserviceeventdateemr,lastserviceeventdatecht,
                       NextVisitDate,statutfiche)
-report_date <- date(max(LTFU$datesuivieffectue_clean))
+report_date <- date(max(active_LTFU$datesuivieffectue_clean))
 active_LTFU$diff_NexVisit_LastVisitCHT <- active_LTFU$NextVisitDate - active_LTFU$lastserviceeventdatecht
 active_LTFU$diff_reportdate_NexVisit <- report_date - active_LTFU$NextVisitDate
 
 a1 <- filter(active_LTFU, active_LTFU$NextVisitDate >= report_date)
 a2 <- filter(active_LTFU, active_LTFU$NextVisitDate < report_date,active_LTFU$diff_reportdate_NexVisit <=90)
 
-active_LTFU <- mutate(active_LTFU,PactientActif_1 = ifelse(NextVisitDate >= report_date,1,0))
-active_LTFU <- mutate(active_LTFU,PactientActif_2 = ifelse(report_date - NextVisitDate <=90,1,0))
+active_LTFU <- mutate(active_LTFU,PatientActif_1 = ifelse(NextVisitDate >= report_date,1,0))
+active_LTFU <- mutate(active_LTFU,PatientActif_2 = ifelse(report_date - NextVisitDate <=90,1,0))
 
 
-active_LTFU <- mutate(active_LTFU,PactientActif = ifelse(NextVisitDate >= report_date,1,
+active_LTFU <- mutate(active_LTFU,PatientActif = ifelse(NextVisitDate >= report_date,1,
                                                          ifelse((NextVisitDate < report_date) & diff_reportdate_NexVisit<=90,1,0)))
+actif <- filter(active_LTFU,PatientActif == 1)
+
 ####
 
 LTFU_date <- LTFU %>%
@@ -568,6 +603,45 @@ p <- ggplot(LTFU_date2, aes(x=date))
     theme(axis.text.x = element_text(angle = 90, vjust=0.5),  # rotate x axis text
           panel.grid.minor = element_blank())  # turn off minor grid
     p
+    
+    
+    theme_set(theme_bw())
+    f <- ggplot(LTFU_date2, aes(x=date)) 
+    f <- f + geom_bar( stat="identity",aes(y=n),fill = "blue") 
+    f <- f + geom_line(aes(y=return_perc,colour = "Back in Care"),color = "red") + geom_point(aes(y=return_perc),color = "red")
+    f <- f + scale_y_continuous()
+    f <- f + scale_colour_manual(values = c("blue", "red"))
+    f <- f + labs(title="Monthly Tracking Series", 
+                  subtitle="LTFU tracked", 
+                  caption="Source: PLR", 
+                  y="Nb Patients") +  # title and caption
+        scale_x_date(labels = lbls, 
+                     breaks = brks) +  # change to monthly ticks and labels
+        theme(axis.text.x = element_text(angle = 90, vjust=0.5),  # rotate x axis text
+              panel.grid.minor = element_blank())  # turn off minor grid
+    f
 
 ### relost
-    
+    par(mar = c(1, 1, 1, 1))
+    openplotmat(main ="LTFU Flowchart of outcomes Janv 2015- July 2017")
+    elpos <- coordinates (c(1, 2, 4, 2))
+    fromto <- matrix(ncol = 2,byrow = T,data = c(1,2,1,3,3,4,3,5,3,6,3,7,7,9,7,8))
+    nr <- nrow(fromto)
+    arrpos <- matrix(ncol = 2, nrow = nr)
+    for(i in 1:nr)
+        arrpos[i,] <- straightarrow(to = elpos[fromto[i,2],],
+                                    from = elpos[fromto[i,1],],
+                                    lwd = 2,arr.pos = 0.6,
+                                    arr.length = 0.5)
+    textround(elpos[1,], 0.15,0.06, lab = "34,500 (100%) Total Contacted", cex = 0.8)
+    textround(elpos[2,], 0.15,0.07, lab = "25500 (88%) No Outcomes found", cex = 0.8)
+    textround(elpos[3,], 0.15,0.07, lab = "4563 (88%) Outcomes found",  cex = 0.8)
+    textround(elpos[4,], 0.05,0.07, lab = c("Dead","234 (88%)"),  cex = 0.8)
+    textround(elpos[5,], 0.05,0.07, lab = c("Silent transfer","1256 (23%)"),  cex = 0.8)
+    textround(elpos[6,], 0.05,0.07, lab = c("Refuse Treatment","1236 (34%)"),  cex = 0.8)
+    textround(elpos[7,], 0.05,0.07, lab = c("Back in clinic","4557 (88%)"),  cex = 0.8)
+    textround(elpos[9,], 0.05,0.07, lab = c("active on treatment","3438 (88%)"),  cex = 0.8)
+    textround(elpos[8,], 0.05,0.07, lab = c("not active","322 (88%)"),  cex = 0.8)   
+
+
+
