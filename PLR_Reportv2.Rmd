@@ -616,6 +616,8 @@ tab_cascade %>%
              panel.background = element_blank(), axis.line=element_line(),axis.title.x = element_text(size = 14),
                  plot.title = element_text(size = 14))  
 
+#write_csv(tab_cascade,"tab_cascade.csv")
+
 ```
 
 ## LTFU Flowchart of outcomes
@@ -636,6 +638,7 @@ tab_cascade_spread$SilentTransfer_percent <- tab_cascade_spread$PatientSuiviAill
 tab_cascade_spread$Dead_percent <- tab_cascade_spread$PatientDecede/tab_cascade_spread$`Known Outcomes`
 tab_cascade_spread$active_percent <- tab_cascade_spread$PatientActif/tab_cascade_spread$PatientRetourneALaClinique
 
+tab_cascade_gather <- gather(tab_cascade_spread,"outcomes","val",1:17)
 
 
 ```
