@@ -8,7 +8,7 @@ library(xtable)
 
 
 rm(list = ls())
-rawdata <- read_csv("plr_20170803.csv", na=c("NULL","NA","N/A"))
+rawdata <- read_csv("plr_26_9_2017.csv", na=c("NULL","NA","N/A"))
 
 names(rawdata) <- make.names(names(rawdata))
 rawdata$datesuivieffectue <- mdy(rawdata$datesuivieffectue)
@@ -56,12 +56,23 @@ c <- ncol(rawdata)
 patient_distinct <- n_distinct(rawdata$id_patient)
 site_distinct <- n_distinct(rawdata$Institution)
 
-write_csv(plr,"plr_dac_data.csv")
+
 
 ## DAC
-DAC <- plr %>% filter(TypeRelance_clean == "DAC") 
+DAC$MedicamentRecu <- as.numeric(DAC$MedicamentRecu)
+DAC$DureeMedicament <- as.numeric(DAC$DureeMedicament)
+
+start <- date("2015-03-18")
+end <- date("2017-08-03")
+
+DAC <- plr %>% filter(TypeRelance_clean == "DAC", datesuivieffectue_clean >=start & datesuivieffectue_clean <=end ) %>%
+                select(id,id_fiche,id_patient,codest,sexe,age_suivi,datesuivieffectue_clean,datenaissance,TypeRelance_clean,Partner,Institution,PatientRetrouve,visitegéolocalisee,
+                       observationvisite,PatientDecede,FicheCrééeLe,lastserviceeventdatecht,lastserviceeventdateemr,NextVisitDate,age_group,
+                       DureeMedicament,MedicamentRecu)
+
 n_distinct_DAC_patient <- n_distinct(DAC$id_patient)
-DAC_last <- plr %>% filter(TypeRelance_clean == "DAC") %>% 
+
+DAC_last <- DAC %>%
     group_by(id_patient) %>%
     slice( which.max(datesuivieffectue_clean))
 
@@ -125,3 +136,48 @@ ggplot(DAC_last_age_sexe,aes(x=Age_group,y=n,fill=Sexe))+
           axis.title.x = element_text(size = 14),
           plot.title = element_text(size = 16)) 
 
+## add actifs
+
+report_date_DAC <- date(max(DAC_last$datesuivieffectue_clean))
+DAC_last$diff_NexVisit_LastVisitCHT <-DAC_last$NextVisitDate - DAC_last$lastserviceeventdatecht
+DAC_last$diff_reportdate_NexVisit <- report_date_DAC - DAC_last$NextVisitDate
+
+DAC_last <- mutate(DAC_last,PatientActif = ifelse(NextVisitDate >= report_date_DAC,1,
+                                                  ifelse((NextVisitDate < report_date_DAC) & diff_reportdate_NexVisit<=90,1,0)
+)
+)
+
+table(DAC_last$MedicamentRecu)
+table(DAC_last$PatientActif)
+
+##monthly trend
+ trend_dac <- DAC %>%
+        group_by(date = floor_date(datesuivieffectue_clean, "month")) %>% 
+            summarise(n = n_distinct(id_patient),
+                      mr = sum(MedicamentRecu,na.rm = T))
+ 
+ write_csv(trend_dac,"trend_dac.csv")
+
+
+# group by partner
+
+DAC_last %>%
+    group_by(Partner) %>% 
+    summarise(n = n_distinct(id_patient)) 
+
+## by last visit
+
+last_visit_dac <- DAC_last %>%
+    group_by(year(lastserviceeventdatecht)) %>% 
+    summarise(n = n_distinct(id_patient)) 
+
+
+write_csv(last_visit_dac,"last_visit_dac.csv")
+
+##monthly trend
+trend_duree_dac <- DAC %>%
+    group_by(date = floor_date(datesuivieffectue_clean, "month"),DureeMedicament)%>% 
+    summarise(n = n_distinct(id_patient),
+              mr = sum(MedicamentRecu,na.rm = T))
+
+write_csv(trend_duree_dac,"trend_duree_dac.csv")

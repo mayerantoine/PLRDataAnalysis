@@ -66,7 +66,6 @@ options(knitr.table.format = "html")
             c <- ncol(rawdata)
             patient_distinct <- n_distinct(rawdata$id_patient)
             site_distinct <- n_distinct(rawdata$Institution)
-
 ```
 
 ## Context
@@ -689,6 +688,95 @@ tab_cascade_gather <- gather(tab_cascade_spread,"outcomes","val",1:17)
 
 ```
 
+## PLR Cascade From Oct 2016 - to July 2017
+```{r}
+start_ltfu <- date("2016-10-01")
+end_ltfu <- date("2017-07-31")
+
+LTFU_2_FY17 <- filter(LTFU_2,datesuivieffectue_clean >= start_ltfu, datesuivieffectue_clean < end_ltfu)
+tab_fy17 <- table(LTFU_2_FY17$patient_outcome)
+tab_cascade_fy17 <- as_data_frame(tab_fy17)
+
+names(tab_cascade_fy17) <- c("outcomes","nb")
+
+f_cascade <- function (tab_cascade) {
+    ko <- filter(tab_cascade, outcomes %in% c("PatientDecede","PatientRefuse","PatientRetourneALaClinique","PatientSuiviAilleurs"))
+    to <- filter(tab_cascade, outcomes %in% c("PatientDecede","PatientRefuse","PatientRetourneALaClinique","PatientSuiviAilleurs","PatientIntrouvable","no_outcome"))
+    tot_contacted <- sum(to$nb)
+    
+    dt <- data.frame(c("Tot. Contacted","Known Outcomes"),c(tot_contacted,sum(ko$nb)))
+    names(dt) <- c("outcomes","nb")
+    tab_cascade <- rbind(tab_cascade,dt)
+    tab_cascade$percent <- round((tab_cascade$nb/tot_contacted)*100,1)
+    
+    tab_cascade
+}
+
+## calulate outcome percent
+tab_cascade_fy17 <- f_cascade(tab_cascade_fy17)
+
+tab_cascade_spread_p_fy17 <- spread(tab_cascade_fy17[,c(1,3)],outcomes,percent)
+tab_cascade_spread_n_fy17 <- spread(tab_cascade_fy17[,c(1,2)],outcomes,nb)
+
+tab_cascade_spread_fy17 <- spread(tab_cascade_fy17[,c(1,2)],outcomes,nb)
+tab_cascade_spread_fy17$no_outcome_total <-tab_cascade_spread_fy17$no_outcome+tab_cascade_spread_fy17$PatientIntrouvable
+
+tab_cascade_spread_fy17$no_outcome_percent <-tab_cascade_spread_fy17$no_outcome_total /tab_cascade_spread_fy17$`Tot. Contacted`
+
+tab_cascade_spread_fy17$KnownOutcomes_percent <- tab_cascade_spread_fy17$`Known Outcomes`/tab_cascade_spread_fy17$`Tot. Contacted`
+tab_cascade_spread_fy17$BackInClinic_percent <- tab_cascade_spread_fy17$PatientRetourneALaClinique/tab_cascade_spread_fy17$`Known Outcomes`
+
+tab_cascade_spread_fy17$RefuseTx_percent <- tab_cascade_spread_fy17$PatientRefuse/tab_cascade_spread_fy17$`Known Outcomes`
+tab_cascade_spread_fy17$SilentTransfer_percent <- tab_cascade_spread_fy17$PatientSuiviAilleurs/tab_cascade_spread_fy17$`Known Outcomes`
+tab_cascade_spread_fy17$Dead_percent <- tab_cascade_spread_fy17$PatientDecede/tab_cascade_spread_fy17$`Known Outcomes`
+tab_cascade_spread_fy17$active_percent <- tab_cascade_spread_fy17$PatientActif/tab_cascade_spread_fy17$PatientRetourneALaClinique
+
+## flowchart
+
+
+    par(mar = c(1, 1, 1, 1))
+    openplotmat(main ="LTFU Flowchart of outcomes Oct 2016- July 2017")
+    elpos <- coordinates (c(1, 2, 4, 2))
+    fromto <- matrix(ncol = 2,byrow = T,data = c(1,2,1,3,3,4,3,5,3,6,3,7,7,9))
+    nr <- nrow(fromto)
+    arrpos <- matrix(ncol = 2, nrow = nr)
+    for(i in 1:nr)
+        arrpos[i,] <- straightarrow(to = elpos[fromto[i,2],],
+                                    from = elpos[fromto[i,1],],
+                                    lwd = 2,arr.pos = 0.6,
+                                    arr.length = 0.5)
+    textround(elpos[1,], 0.15,0.06,
+    lab = c("Total Contacted",tab_cascade_spread_fy17$`Tot. Contacted`), cex = 0.8)
+    textround(elpos[2,], 0.15,0.07,
+    lab = c("No Outcomes found",paste(tab_cascade_spread_fy17$no_outcome_total,
+                                 "(",round(tab_cascade_spread_fy17$no_outcome_percent*100,1),"%)")), cex = 0.8)
+   
+    textround(elpos[3,], 0.15,0.07, 
+    lab = c("Outcomes found",paste(tab_cascade_spread_n_fy17$`Known Outcomes`,
+                                   "(",round(tab_cascade_spread_fy17$KnownOutcomes_percent*100,1),"%)")),  cex = 0.8)
+    
+    textround(elpos[4,], 0.05,0.07,
+    lab = c("Dead",paste(tab_cascade_spread_n_fy17$PatientDecede,
+                        "(",round(tab_cascade_spread_fy17$Dead_percent*100,1),"%)")),  cex = 0.8)
+    
+    textround(elpos[5,], 0.05,0.07, 
+    lab = c("Silent transfer",paste(tab_cascade_spread_n_fy17$PatientSuiviAilleurs,
+                          "(",round(tab_cascade_spread_fy17$SilentTransfer_percent*100,1),"%)")), cex = 0.8)
+    
+    textround(elpos[6,], 0.05,0.07, 
+    lab = c("Refuse Treatment",paste(tab_cascade_spread_n_fy17$PatientRefuse,
+                            "(",round(tab_cascade_spread_fy17$RefuseTx_percent*100,1),"%)")),  cex = 0.8)
+    
+    textround(elpos[7,], 0.05,0.07,
+    lab = c("Back in clinic",paste(tab_cascade_spread_n_fy17$PatientRetourneALaClinique,
+                                   "(",round(tab_cascade_spread_fy17$BackInClinic_percent*100,1),"%)")),cex = 0.8)
+    
+    textround(elpos[9,], 0.05,0.07,
+    lab = c("active on treatment",paste(tab_cascade_spread_n_fy17$PatientActif,
+                                        "(",round(tab_cascade_spread_fy17$active_percent*100,1),"%)")),  cex = 0.8)
+
+
+```
 
 ##LTFU Partner Outcome Cascade 
 
@@ -950,3 +1038,92 @@ ggplot(s_female,aes(x=reorder(findings,percent),y=percent)) +
 * Create  static and interactive maps
 * Find a better way to show the impact of LTFU tracking on TX_CURR
 
+# DAC
+
+## DAC breakdown
+
+```{r}
+
+DAC <- plr %>% filter(TypeRelance_clean == "DAC") 
+n_distinct_DAC_patient <- n_distinct(DAC$id_patient)
+DAC_last <- plr %>% filter(TypeRelance_clean == "DAC") %>% 
+    group_by(id_patient) %>%
+    slice( which.max(datesuivieffectue_clean))
+
+## age break down
+DAC_last$age <- as.numeric(DAC_last$age_suivi)
+DAC_last$age_cat1 <- cut(DAC_last$age,c(0,14,24,34,44,59))
+
+DAC_last <- mutate(DAC_last,age_cat1 = ifelse(age <= 14,"0-14",
+                                              ifelse(age>14 & age<=24,"15-24",
+                                                     ifelse(age> 24 & age <=34,"25-34",
+                                                            ifelse(age > 24 & age <=44,"35-44",
+                                                                   ifelse(age>44 & age <=59,"45-59",">59")
+                                                            )
+                                                     )
+                                              )
+                                        )
+                   )
+
+DAC_age_break_down <- table(DAC_last$age_cat1)
+DAC_age_break_down <- as.data.frame(DAC_age_break_down)
+names(DAC_age_break_down) <- c("Age_group","n")
+
+
+ggplot(DAC_age_break_down,aes(x=Age_group,y=n))+
+    geom_bar(stat = "identity",position="dodge")+
+    geom_text(aes(label=n), vjust=1.1, colour="white",
+              position=position_dodge(.9), size=4)+
+    labs(title="DAC by Age group", 
+         subtitle="# unique patient DAC From March 2015 - July 2017",
+         caption="Source: PLR", 
+         y="# unique Patients",
+         x="")+
+    # scale_fill_manual(values = c("#0066CC","#0033FF"))+
+    # scale_fill_brewer(palette="Greys")+
+    theme(axis.text.x = element_text(size = 13),
+          axis.text.y = element_text(size = 14), 
+          panel.background = element_blank(),
+          axis.line=element_line(),
+          axis.title.x = element_text(size = 14),
+          plot.title = element_text(size = 16))
+
+```
+## DAC by Sexe
+
+```{r}
+DAC_last_age_sexe <- table(DAC_last$age_group,DAC_last$sexe)
+DAC_last_age_sexe <- as.data.frame(DAC_last_age_sexe)
+names(DAC_last_age_sexe) <- c("Age_group","Sexe","n")
+
+ggplot(DAC_last_age_sexe,aes(x=Age_group,y=n,fill=Sexe))+
+    geom_bar(stat = "identity",position="dodge")+
+    geom_text(aes(label=n), vjust=1.1, colour="white",
+              position=position_dodge(.9), size=4)+
+    labs(title="DAC by Sexe", 
+         subtitle="# unique patient DAC From March 2015 - July 2017",
+         caption="Source: PLR", 
+         y="# unique Patients",
+         x="")+
+    theme(axis.text.x = element_text(size = 13),
+          axis.text.y = element_text(size = 14), 
+          panel.background = element_blank(),
+          axis.line=element_line(),
+          axis.title.x = element_text(size = 14),
+          plot.title = element_text(size = 16)) 
+
+```
+## DAC Actifs
+
+```{r}
+report_date_DAC <- date(max(DAC_last$datesuivieffectue_clean))
+DAC_last$diff_NexVisit_LastVisitCHT <-DAC_last$NextVisitDate - DAC_last$lastserviceeventdatecht
+DAC_last$diff_reportdate_NexVisit <- report_date_DAC - DAC_last$NextVisitDate
+
+DAC_last <- mutate(DAC_last,PatientActif = ifelse(NextVisitDate >= report_date_DAC,1,
+                                                   ifelse((NextVisitDate < report_date_DAC) & diff_reportdate_NexVisit<=90,1,0)
+                                                 )
+               )
+
+
+```

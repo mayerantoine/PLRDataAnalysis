@@ -1,0 +1,19 @@
+---
+title: "PLR_Cohort"
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Questions
+* How to use lost-to-follow up tracking to impact on ART number.
+* Analyze the LTFU tracking by cohort i.e.
+what are the monthly cohort which are giving more returned patient ?
+* What the proportion from the LTFU population we have tracked are newly enroled and already on ART ?
+Compare the outcome of both group?
+* From the new enrolled patient during the year, what is the proportion of tracked for LTFU,
+what is the outcome of the tracking
+* From the total patients ever LTFU with no evidence of death what proportion have we tracked using PLR?
+What about the remainings? can we track all of them ?
